@@ -1,11 +1,12 @@
-import connectDB from "@/config/db";
+import connectDB from "@/src/infrastructure/database/db";
+import User from "@/models/User";
 import { getAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
-import { GetUserDataUseCase, CreateUserUseCase } from '@/src/application/use-cases/userUseCases'
-import { UserRepositoryImpl } from '@/src/infrastructure/database/repositories'
+
 
 export async function GET(request) {
+
     try {
         const { userId } = getAuth(request)
 
@@ -15,17 +16,11 @@ export async function GET(request) {
 
         await connectDB()
 
-        // Usar caso de uso para obtener datos del usuario
-        const userRepository = new UserRepositoryImpl()
-        const getUserDataUseCase = new GetUserDataUseCase(userRepository)
-        const result = await getUserDataUseCase.execute(userId)
+        // Buscar usuario existente
+        let user = await User.findById(userId)
 
-        if (!result.success) {
-            return NextResponse.json({ success: false, message: result.message })
-        }
-
-        // Si el usuario no existe, crearlo automáticamente
-        if (result.needsCreation) {
+        // Si el usuario no existe en MongoDB, crearlo automáticamente
+        if (!user) {
             console.log('Usuario no encontrado en MongoDB, creando automáticamente:', userId)
 
             try {
@@ -36,20 +31,17 @@ export async function GET(request) {
                     return NextResponse.json({ success: false, message: "Usuario no encontrado en Clerk" })
                 }
 
-                // Crear usuario usando caso de uso
-                const createUserUseCase = new CreateUserUseCase(userRepository)
-                const createResult = await createUserUseCase.execute(userId, {
+                // Crear nuevo usuario en MongoDB
+                const newUser = new User({
+                    _id: userId,
                     name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || 'Usuario',
                     email: clerkUser.emailAddresses[0]?.emailAddress || '',
-                    imageUrl: clerkUser.imageUrl || ''
+                    imageUrl: clerkUser.imageUrl || '',
+                    cartItems: {}
                 })
 
-                if (!createResult.success) {
-                    return NextResponse.json({ success: false, message: createResult.message })
-                }
-
+                user = await newUser.save()
                 console.log('Usuario creado automáticamente en MongoDB:', userId)
-                return NextResponse.json({ success: true, user: createResult.user })
 
             } catch (createError) {
                 console.error('Error creando usuario automáticamente:', createError)
@@ -57,10 +49,11 @@ export async function GET(request) {
             }
         }
 
-        return NextResponse.json({ success: true, user: result.user })
+        return NextResponse.json({success:true, user})
 
     } catch (error) {
         console.error('Error en API de datos de usuario:', error)
         return NextResponse.json({ success: false, message: error.message })
     }
+
 }

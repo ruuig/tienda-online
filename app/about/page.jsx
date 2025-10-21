@@ -1,7 +1,7 @@
 'use client'
 import React from 'react'
-import Navbar from '@/src/presentation/components/seller/Navbar'
-import Footer from '@/src/presentation/components/seller/Footer'
+import Navbar from '@/src/presentation/components/Navbar'
+import Footer from '@/src/presentation/components/Footer'
 import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 
