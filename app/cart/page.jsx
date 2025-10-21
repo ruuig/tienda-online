@@ -2,7 +2,7 @@
 import React from "react";
 import { assets } from "@/assets/assets";
 import OrderSummary from "@/src/presentation/components/OrderSummary";
-import Navbar from "@/src/presentation/components/seller/Navbar";
+import Navbar from "@/src/presentation/components/Navbar";
 import { useAppContext } from "@/context/AppContext";
 
 const Cart = () => {

@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import ProductCard from "@/src/presentation/components/ProductCard";
-import Navbar from "@/src/presentation/components/seller/Navbar";
-import Footer from "@/src/presentation/components/seller/Footer";
+import Navbar from "@/src/presentation/components/Navbar";
+import Footer from "@/src/presentation/components/Footer";
 import { useAppContext } from "@/context/AppContext";
 
 const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {

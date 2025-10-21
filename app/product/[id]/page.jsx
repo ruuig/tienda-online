@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { assets } from "@/assets/assets";
 import ProductCard from "@/src/presentation/components/ProductCard";
-import Navbar from "@/src/presentation/components/seller/Navbar";
-import Footer from "@/src/presentation/components/seller/Footer";
+import Navbar from "@/src/presentation/components/Navbar";
+import Footer from "@/src/presentation/components/Footer";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import Loading from "@/src/presentation/components/Loading";
