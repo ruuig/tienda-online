@@ -63,3 +63,20 @@ export class GetSellerOrdersUseCase {
     }
   }
 }
+
+
+// Caso de uso para obtener órdenes de un usuario
+export class GetOrdersUseCase {
+  constructor(orderRepository) {
+    this.orderRepository = orderRepository;
+  }
+
+  async execute(userId) {
+    try {
+      const orders = await this.orderRepository.findByUserId(userId);
+      return { success: true, orders };
+    } catch (error) {
+      return { success: false, message: error.message };
+    }
+  }
+}
