@@ -3,7 +3,7 @@ import { getAuth } from '@clerk/nextjs/server'
 import authSeller from "@/lib/authSeller";
 import { NextResponse } from "next/server";
 import connectDB from "@/config/db";
-import Product from "@/models/Product";
+import Product from "@/src/domain/entities/Product";
 
 // Configure Cloudinary
 cloudinary.config({

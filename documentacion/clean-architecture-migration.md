@@ -42,7 +42,7 @@ src/
    - Contenido: Exports de todas las entidades
 
 4. **Actualizar imports en archivos de API**:
-   - Cambiar `@/models/Entity` a `@/src/domain/entities/Entity`
+   - Cambiar `@/src/domain/entities/Entity` a `@/src/domain/entities/Entity`
    - Archivos actualizados: Todos los archivos en `app/api/`
 
 ### Paso 2: Creación de Interfaces y Repositorios

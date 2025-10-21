@@ -1,5 +1,5 @@
 import connectDB from '@/config/db'
-import HeaderSlider from '@/models/HeaderSlider'
+import HeaderSlider from '@/src/domain/entities/HeaderSlider'
 import { assets } from '@/src/assets/assets'
 import { NextResponse } from 'next/server'
 
