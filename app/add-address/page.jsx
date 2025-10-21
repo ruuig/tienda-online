@@ -1,5 +1,5 @@
 'use client'
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import Navbar from "@/src/presentation/components/Navbar";
 import Footer from "@/src/presentation/components/Footer";
 import Image from "next/image";

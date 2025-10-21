@@ -1,6 +1,6 @@
 "use client"
 import { useEffect, useState } from "react";
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import ProductCard from "@/src/presentation/components/ProductCard";
 import Navbar from "@/src/presentation/components/Navbar";
 import Footer from "@/src/presentation/components/Footer";

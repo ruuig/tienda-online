@@ -1,6 +1,6 @@
 import connectDB from '@/config/db'
 import HeaderSlider from '@/models/HeaderSlider'
-import { assets } from '@/assets/assets'
+import { assets } from '@/src/assets/assets'
 import { NextResponse } from 'next/server'
 
 export async function POST(request) {

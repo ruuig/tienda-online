@@ -1,6 +1,6 @@
 'use client'
 import React, { useState, useEffect } from 'react'
-import { assets } from '@/assets/assets'
+import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
 import Loading from '@/src/presentation/components/Loading'

@@ -1,6 +1,6 @@
 'use client'
 import React, { useEffect, useState, useMemo } from "react";
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
 import Loading from "@/src/presentation/components/Loading";
