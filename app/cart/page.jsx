@@ -1,5 +1,6 @@
 'use client'
 import React from "react";
+import Image from "next/image"; 
 import { assets } from "@/assets/assets";
 import OrderSummary from "@/src/presentation/components/OrderSummary";
 import Navbar from "@/src/presentation/components/Navbar";
