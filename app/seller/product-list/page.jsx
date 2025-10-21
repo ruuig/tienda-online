@@ -3,7 +3,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { assets } from "@/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
-import Loading from "@/components/Loading";
+import Loading from "@/src/presentation/components/Loading";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { usePathname } from "next/navigation";

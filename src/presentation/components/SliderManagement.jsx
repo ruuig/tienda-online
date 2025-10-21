@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { assets } from '@/assets/assets'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
-import Loading from '@/components/Loading'
+import Loading from '@/src/presentation/components/Loading'
 
 const SliderManagement = () => {
   const [slides, setSlides] = useState([])

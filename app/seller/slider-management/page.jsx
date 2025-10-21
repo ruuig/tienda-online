@@ -1,6 +1,6 @@
 'use client'
 import React from 'react'
-import SliderManagement from '@/components/SliderManagement'
+import SliderManagement from '@/src/presentation/components/SliderManagement'
 
 const SliderManagementPage = () => {
   return (

@@ -3,9 +3,9 @@ import React, { useEffect, useState } from "react";
 import { assets, orderDummyData } from "@/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
-import Footer from "@/components/Footer";
-import Navbar from "@/components/Navbar";
-import Loading from "@/components/Loading";
+import Footer from "@/src/presentation/components/seller/Footer";
+import Navbar from "@/src/presentation/components/seller/Navbar";
+import Loading from "@/src/presentation/components/Loading";
 import axios from "axios";
 import toast from "react-hot-toast";
 

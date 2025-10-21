@@ -1,8 +1,8 @@
 'use client'
 import React, { useState } from 'react'
-import Navbar from '@/components/Navbar'
-import Footer from '@/components/Footer'
-import { assets } from '@/assets/assets'
+import Navbar from '@/src/presentation/components/Navbar'
+import Footer from '@/src/presentation/components/Footer'
+import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
 

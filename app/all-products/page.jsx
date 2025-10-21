@@ -1,9 +1,9 @@
 'use client'
 import React, { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
-import ProductCard from "@/components/ProductCard";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import ProductCard from "@/src/presentation/components/ProductCard";
+import Navbar from "@/src/presentation/components/seller/Navbar";
+import Footer from "@/src/presentation/components/seller/Footer";
 import { useAppContext } from "@/context/AppContext";
 
 const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {

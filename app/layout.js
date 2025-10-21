@@ -3,7 +3,7 @@ import "./globals.css";
 import { AppContextProvider } from "@/context/AppContext";
 import { Toaster } from "react-hot-toast";
 import { ClerkProvider } from "@clerk/nextjs";
-import AddToCartNotification from "@/components/AddToCartNotification";
+import AddToCartNotification from "@/src/presentation/components/AddToCartNotification";
 
 const outfit = Outfit({ subsets: ['latin'], weight: ["300", "400", "500"] })
 

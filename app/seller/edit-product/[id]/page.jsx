@@ -6,7 +6,7 @@ import { useAppContext } from "@/context/AppContext";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { useParams } from "next/navigation";
-import Loading from "@/components/Loading";
+import Loading from "@/src/presentation/components/Loading";
 
 const EditProduct = () => {
 
