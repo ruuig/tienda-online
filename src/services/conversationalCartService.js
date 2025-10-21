@@ -223,20 +223,48 @@ export class ConversationalCartService {
    */
   async processUserResponse(conversationId, userResponse) {
     const state = this.getConversationState(conversationId);
+    const lowerResponse = userResponse.toLowerCase();
 
+    // Si no hay estado activo pero el usuario menciona un producto, intentar procesarlo
     if (!state) {
+      const product = await this.findProductInMessage(userResponse);
+      if (product) {
+        console.log('ConversationalCartService: Producto encontrado en respuesta sin estado:', product.name);
+        return await this.processProductPurchaseIntent(conversationId, 'demo-user', userResponse, product);
+      }
+
       return {
         action: 'no_purchase_flow',
         message: 'No hay un proceso de compra activo. ¿En qué puedo ayudarte?'
       };
     }
 
-    const lowerResponse = userResponse.toLowerCase();
-
     // Procesar según el paso actual
     switch (state.currentStep) {
       case 'awaiting_add_confirmation':
-        if (this.isAffirmativeResponse(lowerResponse) || lowerResponse.includes('sí') || lowerResponse.includes('agregar')) {
+        // Detectar respuestas afirmativas más variadas
+        const isAffirmative = this.isAffirmativeResponse(lowerResponse) ||
+                             lowerResponse.includes('sí') ||
+                             lowerResponse.includes('si') ||
+                             lowerResponse.includes('agregar') ||
+                             lowerResponse.includes('agregalo') ||
+                             lowerResponse.includes('agregarlo') ||
+                             lowerResponse.includes('agregarla') ||
+                             lowerResponse.includes('agreguen') ||
+                             lowerResponse.includes('agregame') ||
+                             lowerResponse.includes('agregarmelo') ||
+                             lowerResponse.includes('agregarselo') ||
+                             lowerResponse.includes('agregarmela') ||
+                             lowerResponse.includes('agregarsela') ||
+                             lowerResponse.includes('claro') ||
+                             lowerResponse.includes('por supuesto') ||
+                             lowerResponse.includes('dale') ||
+                             lowerResponse.includes('vamos') ||
+                             lowerResponse.includes('adelante') ||
+                             lowerResponse.includes('perfecto') ||
+                             /\b(sí|si|agrega|agregue|add|yes)\b/i.test(lowerResponse);
+
+        if (isAffirmative) {
           return this.addProductToCart(conversationId, state.pendingProduct._id);
         } else if (this.isNegativeResponse(lowerResponse) || lowerResponse.includes('no') || lowerResponse.includes('cancelar')) {
           state.currentStep = 'product_selection';
@@ -448,7 +476,13 @@ export class ConversationalCartService {
   isAffirmativeResponse(response) {
     const affirmativeWords = [
       'sí', 'si', 'yes', 'claro', 'por supuesto', 'ok', 'okay',
-      'perfecto', 'excelente', 'de acuerdo', 'confirmo', 'confirmar'
+      'perfecto', 'excelente', 'de acuerdo', 'confirmo', 'confirmar',
+      'agregar', 'agregalo', 'agregarlo', 'agregarla', 'agreguen',
+      'agregame', 'agregarmelo', 'agregarselo', 'agregarmela', 'agregarsela',
+      'dale', 'vamos', 'adelante', 'agrega', 'agregue', 'add',
+      'sí claro', 'si por favor', 'claro que sí', 'por supuesto que sí',
+      'sí quiero', 'si quiero', 'quiero', 'me gustaría', 'está bien',
+      'perfecto', 'genial', 'excelente idea', 'buena idea'
     ];
     return affirmativeWords.some(word => response.includes(word));
   }

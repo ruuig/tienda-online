@@ -187,7 +187,36 @@ export class ChatService {
 
         case 'agregar_carrito':
           // Si quiere agregar al carrito, procesar la respuesta
-          return await conversationalCartService.processUserResponse(conversationId, userMessage);
+          // Primero verificar si hay un estado de compra activo
+          const cartState = conversationalCartService.getConversationState(conversationId);
+
+          if (cartState && cartState.pendingProduct) {
+            console.log('ChatService: Producto pendiente encontrado:', cartState.pendingProduct.name);
+            return await conversationalCartService.processUserResponse(conversationId, userMessage);
+          }
+
+          // Si no hay producto pendiente, intentar encontrar el producto en el mensaje
+          const productToAdd = await conversationalCartService.findProductInMessage(userMessage);
+          if (productToAdd) {
+            console.log('ChatService: Producto encontrado en mensaje:', productToAdd.name);
+            return await conversationalCartService.processProductPurchaseIntent(
+              conversationId,
+              userId,
+              userMessage,
+              productToAdd
+            );
+          }
+
+          // Si no se puede determinar el producto, pedir aclaración
+          return {
+            action: 'ask_which_product',
+            message: '¡Por supuesto! Pero, necesito saber cuál producto te gustaría agregar a tu carrito. ¿Podrías indicarme el nombre del producto por favor? 😊',
+            nextSteps: [
+              'Ver productos disponibles',
+              'Buscar por nombre',
+              'Ver mi carrito actual'
+            ]
+          };
 
         case 'ver_carrito':
           // Mostrar contenido del carrito

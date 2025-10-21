@@ -223,6 +223,9 @@ node scripts/testChatNoErrors.js
 
 # Verificación completa de correcciones
 node scripts/finalErrorFixVerification.js
+
+# Prueba de contexto del chat
+node scripts/testChatContext.js
 ```
 
 ## 🔧 Comandos Útiles
