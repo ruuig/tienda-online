@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { assets } from '@/src/assets/assets';
+import { assets } from '@/assets/assets';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 
