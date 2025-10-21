@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useAppContext } from "@/context/AppContext";
 import Image from "next/image";
 import { useClerk, UserButton } from "@clerk/nextjs";
+import { ChatButton } from "./chat";
 
 const Navbar = () => {
   const { isSeller, router, user, getCartCount } = useAppContext();
@@ -198,6 +199,9 @@ const Navbar = () => {
           }
         </div>
       </nav>
+
+      {/* Chat de soporte */}
+      <ChatButton />
 
       {/* Modal de Búsqueda */}
       {showSearchModal && (

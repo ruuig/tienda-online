@@ -96,7 +96,7 @@ const About = () => {
                 <div className="w-24 h-24 bg-secondary-200 rounded-full mx-auto mb-4 flex items-center justify-center">
                   <span className="text-2xl font-bold text-secondary-700">R</span>
                 </div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Rudy Eleazar Oloroso</h3>
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">Carlos</h3>
                 <p className="text-secondary-600 mb-2">CEO & Founder</p>
                 <p className="text-gray-600 text-sm">
                   Coordinador de la empresa y del grupo de trabajo.

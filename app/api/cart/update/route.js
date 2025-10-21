@@ -2,7 +2,7 @@ import connectDB from '@/config/db'
 import { getAuth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { UpdateCartUseCase } from '@/src/application/use-cases/cartUseCases'
-import { CartRepositoryImpl } from '@/src/infrastructure/database/repositories'
+import { UserRepositoryImpl } from '@/src/infrastructure/database/repositories'
 
 export async function POST(request) {
     try {
@@ -21,9 +21,9 @@ export async function POST(request) {
 
         await connectDB()
 
-        // Usar caso de uso
-        const cartRepository = new CartRepositoryImpl()
-        const updateCartUseCase = new UpdateCartUseCase(cartRepository)
+        // Usar caso de uso con UserRepository
+        const userRepository = new UserRepositoryImpl()
+        const updateCartUseCase = new UpdateCartUseCase(userRepository)
         const result = await updateCartUseCase.execute(userId, cartData)
 
         if (!result.success) {
