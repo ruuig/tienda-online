@@ -195,14 +195,34 @@ Responde siempre de manera útil y orientada al cliente.`;
         {
           role: 'system',
           content: `Clasifica la intención del mensaje del cliente en una de estas categorías:
-          - consulta_producto: Preguntas sobre productos específicos
-          - consulta_pedido: Seguimiento de pedidos o problemas con órdenes
+
+          CATEGORÍAS DE CONSULTA:
+          - consulta_producto: Preguntas sobre productos específicos o catálogo general
+          - consulta_pedido: Seguimiento de pedidos o problemas con órdenes existentes
           - consulta_tecnica: Problemas técnicos o soporte técnico
           - consulta_devolucion: Políticas de devolución o cambios
           - consulta_envio: Información sobre envíos y entregas
           - saludo: Saludos o conversaciones casuales
           - queja: Quejas o problemas con el servicio
-          - otra: Cualquier otra consulta
+
+          CATEGORÍAS DE COMPRA CONVERSACIONAL:
+          - compra_producto: Quiere comprar un producto específico que mencionó
+          - agregar_carrito: Quiere agregar productos al carrito de compra
+          - ver_carrito: Quiere ver el contenido del carrito
+          - modificar_carrito: Quiere cambiar cantidades o remover productos del carrito
+          - proceder_pago: Quiere proceder al pago o finalizar la compra
+          - confirmar_compra: Confirmación de detalles antes de comprar
+          - cancelar_compra: Quiere cancelar el proceso de compra
+
+          OTRAS:
+          - otra: Cualquier otra consulta que no encaje en las categorías anteriores
+
+          REGLAS ESPECÍFICAS PARA COMPRA:
+          - Si menciona un producto específico y dice "comprar", "adquirir", "me interesa", usa "compra_producto"
+          - Si dice "agregar al carrito", "añadir al carrito", usa "agregar_carrito"
+          - Si dice "ver carrito", "qué tengo en el carrito", usa "ver_carrito"
+          - Si dice "proceder al pago", "pagar", "checkout", usa "proceder_pago"
+          - Si pregunta por precios o disponibilidad con intención clara de compra, usa "compra_producto"
 
           Responde únicamente con el formato JSON: {"intent": "categoria", "confidence": 0.95}`
         },

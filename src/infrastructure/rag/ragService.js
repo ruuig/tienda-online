@@ -14,7 +14,7 @@ export class RAGService {
    */
   async buildIndex(documents) {
     try {
-      console.log(`🔍 Construyendo índice RAG con ${documents.length} documentos...`);
+      console.log(`Construyendo índice RAG con ${documents.length} documentos...`);
 
       for (const doc of documents) {
         // Dividir documento en chunks (simplificado)

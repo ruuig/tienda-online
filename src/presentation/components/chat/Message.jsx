@@ -1,9 +1,9 @@
 // Componente individual de mensaje
 import React from 'react';
 import Image from 'next/image';
-import { assets } from '@/src/assets/assets';
+import ChatProductCard from './ChatProductCard';
 
-const Message = ({ message, isOwn, onMarkAsRead }) => {
+const Message = ({ message, isOwn, onMarkAsRead, onPurchaseOption, onAddToCart }) => {
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('es-ES', {
@@ -74,6 +74,29 @@ const Message = ({ message, isOwn, onMarkAsRead }) => {
             {message.content}
           </p>
 
+          {/* Cards de productos si están disponibles */}
+          {message.metadata?.products && message.metadata.products.length > 0 && !isOwn && (
+            <div className="mt-3 space-y-3">
+              <div className="text-xs text-gray-600 mb-2">
+                📦 **Productos encontrados:**
+              </div>
+              <div className="space-y-2">
+                {message.metadata.products.slice(0, 3).map((product, index) => (
+                  <ChatProductCard
+                    key={product._id || index}
+                    product={product}
+                    onAddToCart={onAddToCart || ((product) => onPurchaseOption && onPurchaseOption(`Agregar ${product.name} al carrito`))}
+                  />
+                ))}
+              </div>
+              {message.metadata.products.length > 3 && (
+                <div className="text-xs text-gray-500 text-center">
+                  Y {message.metadata.products.length - 3} productos más...
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Metadata del mensaje */}
           <div className={`flex items-center justify-between mt-2 text-xs ${
             isOwn ? 'text-blue-100' : 'text-gray-500'
@@ -111,17 +134,107 @@ const Message = ({ message, isOwn, onMarkAsRead }) => {
             <div className={`mt-2 text-xs ${isOwn ? 'text-blue-200' : 'text-gray-600'}`}>
               <span className="font-medium">Fuentes: </span>
               {message.metadata.sources.slice(0, 2).map((source, index) => (
-                <span key={index} className="mr-1">
+                <span key={`source-${index}-${source.substring(0, 10)}`} className="mr-1">
                   {source}
                   {index < message.metadata.sources.length - 1 ? ', ' : ''}
                 </span>
               ))}
             </div>
           )}
-        </div>
 
-        {/* Botón para marcar como leído (solo mensajes de otros) */}
-        {/* REMOVIDO: Botón marcar como leído eliminado según solicitud */}
+          {/* Opciones interactivas para flujo de compra */}
+          {message.type === 'purchase_flow' && message.metadata?.nextSteps && !isOwn && (
+            <div className="mt-3 space-y-2">
+              <div className="text-xs text-gray-600 mb-2">
+                **Opciones disponibles:**
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {message.metadata.nextSteps.map((option, index) => (
+                  <button
+                    key={`option-${index}-${option.substring(0, 10)}`}
+                    onClick={() => onPurchaseOption && onPurchaseOption(option)}
+                    className="px-3 py-1 text-xs bg-white bg-opacity-20 hover:bg-opacity-30 rounded-full border border-white border-opacity-30 hover:border-opacity-50 transition-all duration-200 text-white"
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Botones específicos para opciones Sí/No */}
+          {message.type === 'purchase_flow' && message.metadata?.nextSteps &&
+           message.metadata.nextSteps.some(option =>
+             option.toLowerCase().includes('sí') ||
+             option.toLowerCase().includes('no') ||
+             option.toLowerCase().includes('agregar') ||
+             option.toLowerCase().includes('cancelar') ||
+             option.toLowerCase().includes('confirmar') ||
+             option.toLowerCase().includes('proceder')
+           ) && !isOwn && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 mb-2">
+                **¿Qué te gustaría hacer?**
+              </div>
+              <div className="flex gap-2">
+                {message.metadata.nextSteps.map((option, index) => {
+                  const isYes = option.toLowerCase().includes('sí') ||
+                               option.toLowerCase().includes('agregar') ||
+                               option.toLowerCase().includes('confirmar') ||
+                               option.toLowerCase().includes('proceder');
+                  const isNo = option.toLowerCase().includes('no') ||
+                              option.toLowerCase().includes('cancelar');
+
+                  return (
+                    <button
+                      key={`button-${index}-${option.substring(0, 8)}`}
+                      onClick={() => onPurchaseOption && onPurchaseOption(option)}
+                      className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 transform hover:scale-105 ${
+                        isYes
+                          ? 'bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg'
+                          : isNo
+                          ? 'bg-red-600 hover:bg-red-700 text-white shadow-md hover:shadow-lg'
+                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                      }`}
+                    >
+                      {isYes ? '✅ ' : isNo ? '❌ ' : '🔘 '}
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Estado del carrito para mensajes de compra */}
+          {message.metadata?.cartState && !isOwn && (
+            <div className="mt-2 text-xs bg-white bg-opacity-10 rounded p-2">
+              <div className="text-gray-200 font-medium">🛒 Estado del carrito:</div>
+              <div className="text-gray-300">
+                • {message.metadata.cartState.totalItems || 0} productos
+                {message.metadata.cartState.totalAmount && (
+                  <span className="ml-2">• Q{message.metadata.cartState.totalAmount}</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Botón de redirección para compras completadas */}
+          {message.metadata?.purchaseAction === 'purchase_completed' && message.metadata?.redirectTo && !isOwn && (
+            <div className="mt-3">
+              <button
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.location.href = message.metadata.redirectTo;
+                  }
+                }}
+                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200 font-medium text-sm"
+              >
+                🛒 Ir al Carrito para Completar el Pago
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

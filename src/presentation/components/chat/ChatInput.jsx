@@ -1,4 +1,4 @@
-// Componente de input para el chat
+// Componente de input para el chat con límite de 1000 caracteres (oculto visualmente)
 import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 
 const ChatInput = forwardRef(({
@@ -84,6 +84,7 @@ const ChatInput = forwardRef(({
           onBlur={handleBlur}
           disabled={disabled}
           placeholder={placeholder}
+          maxLength={1000}
           className={`w-full px-4 py-2 pr-12 border rounded-lg resize-none transition-all duration-200 ${
             isFocused
               ? 'border-[#69c2d0] ring-2 ring-[#69c2d0] ring-opacity-20'
@@ -97,9 +98,9 @@ const ChatInput = forwardRef(({
           style={{ minHeight: '40px', maxHeight: '100px' }}
         />
 
-        {/* Indicador de caracteres */}
+        {/* Indicador de caracteres - oculto visualmente pero funcional */}
         {value.length > 0 && (
-          <div className="absolute bottom-1 right-12 text-xs text-gray-400">
+          <div className="absolute bottom-1 right-12 text-xs text-gray-400 opacity-0 pointer-events-none">
             {value.length}/1000
           </div>
         )}

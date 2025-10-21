@@ -5,6 +5,7 @@ import ChatWindow from './ChatWindow';
 
 const ChatButton = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -12,18 +13,30 @@ const ChatButton = () => {
     setIsLoading(true);
     setCurrentConversation('demo-chat');
     setIsChatOpen(true);
+    setIsMinimized(false);
     setIsLoading(false);
   };
 
   const handleCloseChat = () => {
     setIsChatOpen(false);
+    setIsMinimized(false);
+  };
+
+  const handleMinimize = () => {
+    setIsMinimized(true);
+    setIsChatOpen(false);
+  };
+
+  const handleRestore = () => {
+    setIsMinimized(false);
+    setIsChatOpen(true);
   };
 
   return (
     <>
       {/* Botón flotante */}
       <button
-        onClick={handleOpenChat}
+        onClick={isMinimized ? handleRestore : handleOpenChat}
         disabled={isLoading}
         className={`fixed bottom-6 right-6 z-40 p-4 rounded-full shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300 group ${
           isLoading
@@ -49,12 +62,14 @@ const ChatButton = () => {
           </svg>
         )}
 
-        <span className="absolute -top-1 -right-1 bg-[#c92141] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-          1
-        </span>
+        {isMinimized && (
+          <span className="absolute -top-1 -right-1 bg-[#c92141] text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+            1
+          </span>
+        )}
 
         <div className="absolute bottom-full right-0 mb-2 px-3 py-1 bg-gray-800 text-white text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-          {isLoading ? 'Cargando...' : 'Chat con IA'}
+          {isLoading ? 'Cargando...' : isMinimized ? 'Restaurar Chat' : 'Chat con IA'}
           <div className="absolute top-full right-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800"></div>
         </div>
       </button>
@@ -63,6 +78,8 @@ const ChatButton = () => {
         <ChatWindow
           conversationId={currentConversation || 'demo-chat'}
           onClose={handleCloseChat}
+          onMinimize={handleMinimize}
+          onRestore={handleRestore}
         />
       )}
     </>

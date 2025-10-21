@@ -42,7 +42,6 @@ export class ChatService {
             purchaseAction: purchaseResult.action,
             cartState: purchaseResult.cartSummary,
             nextSteps: purchaseResult.nextSteps,
-            products: purchaseResult.products || [], // Incluir productos si están disponibles
             processingTime: Date.now() - startTime,
             model: 'gpt-4'
           },
@@ -73,18 +72,7 @@ export class ChatService {
 
       console.log('ChatService: Respuesta generada:', response.substring(0, 100));
 
-      // 4. Buscar productos relacionados si la consulta menciona productos
-      let relevantProducts = [];
-      if (intent.intent === 'consulta_producto' || userMessage.toLowerCase().includes('producto')) {
-        try {
-          relevantProducts = await conversationalCartService.searchProducts(userMessage, 3);
-          console.log(`ChatService: Encontrados ${relevantProducts.length} productos relacionados`);
-        } catch (error) {
-          console.warn('ChatService: Error buscando productos relacionados:', error.message);
-        }
-      }
-
-      // 5. Crear mensaje de respuesta del bot
+      // 4. Crear mensaje de respuesta del bot
       const botMessageData = {
         conversationId,
         content: response,
@@ -96,8 +84,7 @@ export class ChatService {
           processingTime: Date.now() - startTime,
           model: 'gpt-4',
           usedProductContext: !!context.products,
-          productsCount: context.products?.length || 0,
-          products: relevantProducts // Incluir productos relacionados
+          productsCount: context.products?.length || 0
         },
         createdAt: new Date()
       };
