@@ -1,10 +1,12 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Navbar from '@/src/presentation/components/Navbar'
 import Footer from '@/src/presentation/components/Footer'
 import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 const Contact = () => {
   const [formData, setFormData] = useState({
@@ -28,23 +30,45 @@ const Contact = () => {
     setIsSubmitting(true)
 
     try {
-      // Aquí iría la lógica para enviar el formulario
-      // Por ahora simulamos el envío
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // Enviar al endpoint /api/contact
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      })
+      const data = await res.json()
+
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Error al enviar')
 
       toast.success('Mensaje enviado correctamente. ¡Gracias por contactarnos!')
-      setFormData({
-        name: '',
-        email: '',
-        subject: '',
-        message: ''
-      })
+      setFormData({ name: '', email: '', subject: '', message: '' })
     } catch (error) {
-      toast.error('Error al enviar el mensaje. Por favor intenta de nuevo.')
+      toast.error('Error al enviar el mensaje: ' + error.message)
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  // 🗺️ Inicializar mapa con Leaflet (OpenStreetMap) — El Calvario, Chiquimula
+  useEffect(() => {
+    const lat = 14.796436
+    const lng = -89.546711
+    const map = L.map('map').setView([lat, lng], 16)
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+    }).addTo(map)
+
+    L.marker([lat, lng])
+      .addTo(map)
+      .bindPopup('<b>Tienda Online</b><br>Ubicación: Parque El Calvario, Chiquimula.')
+      .openPopup()
+
+    return () => {
+      map.remove()
+    }
+  }, [])
 
   return (
     <>
@@ -160,7 +184,7 @@ const Contact = () => {
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-800">Dirección</h4>
-                      <p className="text-gray-600">Zona 10, Ciudad de Guatemala</p>
+                      <p className="text-gray-600">Parque El Calvario, Chiquimula</p>
                       <p className="text-gray-600">Guatemala, C.A.</p>
                     </div>
                   </div>
@@ -172,9 +196,10 @@ const Contact = () => {
                       </svg>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-gray-800">Teléfono</h4>
-                      <p className="text-gray-600">+502 1234-5678</p>
-                      <p className="text-gray-600">+502 8765-4321</p>
+                      <h4 className="font-semibold text-gray-800">Teléfonos</h4>
+                      <p className="text-gray-600">+502 5712-0482</p>
+                      <p className="text-gray-600">+502 4002-6108</p>
+                      <p className="text-gray-600">+502 3696-7266</p>
                     </div>
                   </div>
 
@@ -186,8 +211,8 @@ const Contact = () => {
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-800">Email</h4>
-                      <p className="text-gray-600">info@tiendaonline.com</p>
-                      <p className="text-gray-600">soporte@tiendaonline.com</p>
+                    
+                      <p className="text-gray-600">soporterjgtechshop@gmail.com</p>
                     </div>
                   </div>
 
@@ -207,18 +232,10 @@ const Contact = () => {
                 </div>
               </div>
 
-              {/* Map Placeholder */}
+              {/* Mapa Leaflet */}
               <div className="mt-8">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Ubicación</h3>
-                <div className="bg-gray-200 rounded-lg h-48 flex items-center justify-center">
-                  <div className="text-center">
-                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                    </svg>
-                    <p className="text-gray-500">Mapa de ubicación</p>
-                    <p className="text-sm text-gray-400">Zona 10, Ciudad de Guatemala</p>
-                  </div>
-                </div>
+                <div id="map" className="bg-gray-200 rounded-lg" style={{ height: 192 }}></div>
               </div>
             </div>
           </div>
