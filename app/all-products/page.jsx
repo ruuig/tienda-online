@@ -7,16 +7,21 @@ import Footer from "@/src/presentation/components/Footer";
 import { useAppContext } from "@/context/AppContext";
 
 const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
-  const categories = [
-    'All',
-    'Earphone',
-    'Headphone',
-    'Watch',
-    'Smartphone',
-    'Laptop',
-    'Camera',
-    'Accessories'
-  ]
+  const categoryNames = {
+    'smartphone': 'Smartphones',
+    'laptop': 'Computadoras',
+    'earphone': 'Earphones',
+    'headphone': 'Headphones',
+    'watch': 'Relojes Inteligentes',
+    'camera': 'Cámaras',
+    'accessories': 'Accesorios',
+    'tablet': 'Tablets',
+    'console': 'Consolas',
+    'gaming': 'Juegos',
+    'home': 'hogar',
+  };
+
+  const categories = ['All', ...Object.keys(categoryNames)];
 
   const sortOptions = [
     { value: 'name-asc', label: 'Nombre A-Z' },
@@ -63,7 +68,7 @@ const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
           >
             {categories.map(category => (
               <option key={category} value={category}>
-                {category === 'All' ? 'Todas las categorías' : category}
+                {category === 'All' ? 'Todas las categorías' : categoryNames[category] || category}
               </option>
             ))}
           </select>

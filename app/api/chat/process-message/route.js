@@ -166,7 +166,11 @@ function generateProductsSummary(products) {
     'headphone': 'Headphones/Auriculares',
     'watch': 'Relojes Inteligentes',
     'camera': 'Cámaras',
-    'accessories': 'Accesorios'
+    'accessories': 'Accesorios',
+    'tablet': 'Tablets',
+    'console': 'Consolas',
+    'gaming': 'Juegos',
+    'home': 'hogar',
   };
 
   const displayCategories = categories.map(cat => categoryNames[cat] || cat).join(', ');
