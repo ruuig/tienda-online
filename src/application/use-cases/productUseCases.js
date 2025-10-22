@@ -54,13 +54,13 @@ export class CreateProductUseCase {
     this.productRepository = productRepository;
   }
 
-  async execute(sellerId, productData, imageUrls = []) {
+  async execute(userId, productData, imageUrls = []) {
     try {
       const newProduct = {
         ...productData,
-        sellerId,
-        images: imageUrls,
-        date: new Date()
+        userId, // Cambiar de sellerId a userId para coincidir con el esquema
+        image: imageUrls, // Cambiar de images a image para coincidir con el esquema
+        date: Date.now() // Usar timestamp numérico como en el esquema
       };
 
       const product = await this.productRepository.create(newProduct);
