@@ -5,7 +5,7 @@ import Footer from '@/src/presentation/components/Footer'
 import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 import toast from 'react-hot-toast'
-import L from 'leaflet'
+// ❌ quitamos: import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 const Contact = () => {
@@ -49,25 +49,30 @@ const Contact = () => {
     }
   }
 
-  // 🗺️ Inicializar mapa con Leaflet (OpenStreetMap) — El Calvario, Chiquimula
+  // 🗺️ Inicializar Leaflet SOLO en cliente para evitar "window is not defined"
   useEffect(() => {
-    const lat = 14.796436
-    const lng = -89.546711
-    const map = L.map('map').setView([lat, lng], 16)
+    let map
+    const init = async () => {
+      if (typeof window === 'undefined') return
+      const { default: L } = await import('leaflet')
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
-    }).addTo(map)
+      const lat = 14.796436
+      const lng = -89.546711
+      map = L.map('map').setView([lat, lng], 16)
 
-    L.marker([lat, lng])
-      .addTo(map)
-      .bindPopup('<b>Tienda Online</b><br>Ubicación: Parque El Calvario, Chiquimula.')
-      .openPopup()
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+      }).addTo(map)
 
-    return () => {
-      map.remove()
+      L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup('<b>RJG Tech Shop</b><br>Ubicación: Parque El Calvario, Chiquimula.')
+        .openPopup()
     }
+
+    init()
+    return () => { if (map) map.remove() }
   }, [])
 
   return (
@@ -211,7 +216,6 @@ const Contact = () => {
                     </div>
                     <div>
                       <h4 className="font-semibold text-gray-800">Email</h4>
-                    
                       <p className="text-gray-600">soporterjgtechshop@gmail.com</p>
                     </div>
                   </div>
