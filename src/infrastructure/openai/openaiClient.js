@@ -1,5 +1,11 @@
 // Cliente para integración con OpenAI GPT-4
 import OpenAI from 'openai';
+import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+
+const promptConfigService = createPromptConfigService();
+const OFF_TOPIC_TEMPLATE = promptConfigService.getPrompt('offTopicResponse')?.content ||
+  '¡Hola! 😊 Soy un asistente especializado únicamente en productos tecnológicos y compras en nuestra tienda online. ' +
+  'Para preguntas sobre {TOPIC}, te recomiendo consultar fuentes especializadas. ¿Te puedo ayudar con smartphones, laptops, audífonos u otros productos electrónicos? 🛒';
 
 export class OpenAIClient {
   constructor(apiKey) {
@@ -108,6 +114,7 @@ INSTRUCCIONES:
 - Si no sabes algo, di "Déjame consultar con un agente especializado"
 - Para consultas técnicas, proporciona información precisa basada en documentos disponibles
 - Nunca inventes información sobre productos o políticas
+- Si la consulta es sobre temas que NO están relacionados con la tienda ni la tecnología, recházala amablemente usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
 
 CONTEXTO DE LA TIENDA:
 - Somos especialistas en tecnología y productos electrónicos
