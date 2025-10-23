@@ -61,12 +61,16 @@ export async function POST(request) {
 
     const messageRepository = new MessageRepositoryImpl();
 
+    const senderRole = user.role;
+    const sender = senderRole === 'admin' || senderRole === 'seller' ? 'admin' : 'user';
+
     const messageData = {
       conversationId,
       content,
-      sender: 'user',
+      sender,
       type,
-      createdAt: new Date()
+      createdAt: new Date(),
+      ...(sender === 'admin' ? { metadata: { adminId: user.id } } : {})
     };
 
     const message = await messageRepository.create(messageData);
