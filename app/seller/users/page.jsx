@@ -1,5 +1,6 @@
 'use client'
 import React, { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
 import Loading from '@/src/presentation/components/Loading'
 import { useAppContext } from '@/context/AppContext'
 
@@ -23,30 +24,23 @@ export default function SellerUsersPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
 
-  const refresh = async () => {
-    try {
-      setLoading(true)
-      const res = await fetch('/api/user/list', { cache: 'no-store' })
-      const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.message || 'No se pudo obtener usuarios')
-      setUsers(data.users || [])
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    refresh()
-  }, [])
-
   const setRole = async (targetUserId, newRole) => {
+    const prevUsers = users
     // Optimistic UI
-    const prev = users
-    setUsers(prev =>
-      prev.map(u => (u._id === targetUserId ? { ...u, role: newRole } : u))
-    )
+    setUsers(prev => prev.map(u => (u._id === targetUserId ? { ...u, role: newRole } : u)))
+    setSavingUserId(targetUserId)
+
+    const loadingId = toast.loading('Guardando cambios...')
+
+    const parseJSONorThrow = async (res) => {
+      const raw = await res.text()
+      try {
+        return JSON.parse(raw)
+      } catch {
+        const snippet = raw.replace(/\s+/g, ' ').slice(0, 160)
+        throw new Error(`Respuesta no válida del servidor (HTTP ${res.status}): ${snippet}`)
+      }
+    }
 
     try {
       const token = await getToken()
@@ -58,27 +52,42 @@ export default function SellerUsersPage() {
         },
         body: JSON.stringify({ role: newRole }),
       })
-      const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.message || 'No se pudo asignar el rol')
 
-      // Re-sync con backend por si hubo cambios colaterales
-      await refresh()
+      const data = await parseJSONorThrow(res)
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'No se pudo asignar el rol')
+      }
+
+      toast.dismiss(loadingId)
+      toast.success(`Rol actualizado a "${data.role || newRole}"`, { icon: null })
+
+      // Actualiza solo la fila afectada (evita refrescar todo si no quieres)
+      setUsers(prev => prev.map(u =>
+        u._id === targetUserId ? { ...u, role: data.role || newRole } : u
+      ))
     } catch (e) {
-      alert(e.message)
-      // Rollback si falló
-      setUsers(prev)
+      // Rollback + toast de error (sin icono)
+      setUsers(prevUsers)
+      toast.dismiss(loadingId)
+      toast.error(e.message || 'No se pudo asignar el rol', { icon: null })
+    } finally {
+      setSavingUserId(null)
     }
   }
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return users
-    return users.filter(u =>
-      (u.name || '').toLowerCase().includes(q) ||
-      (u.email || '').toLowerCase().includes(q) ||
-      (u._id || '').toLowerCase().includes(q)
-    )
-  }, [users, search])
+    return users.filter(u => {
+      const matchesText =
+        !q ||
+        (u.name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u._id || '').toLowerCase().includes(q)
+      const role = (u.role || 'user').toLowerCase()
+      const matchesRole =
+        roleFilter === 'all' || role === roleFilter
+      return matchesText && matchesRole
+    })
+  }, [users, search, roleFilter])
 
   if (loading) {
     return <Loading />
@@ -122,15 +131,26 @@ export default function SellerUsersPage() {
           </div>
         </div>
 
-        {/* Buscador */}
+        {/* Buscador + Filtro */}
         <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre, email o ID..."
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
-          />
+          <div className="flex flex-col md:flex-row gap-3 md:items-center">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nombre, email o ID..."
+              className="w-full md:flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
+            />
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="w-full md:w-56 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
+            >
+              <option value="all">Todos los roles</option>
+              <option value="seller">Vendedor</option>
+              <option value="user">Usuario</option>
+            </select>
+          </div>
         </div>
 
         {/* Tabla */}
@@ -182,9 +202,12 @@ export default function SellerUsersPage() {
                       </span>
 
                       <select
-                        className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-secondary-500"
+                        className={`border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-secondary-500 ${
+                          savingUserId === u._id ? 'opacity-60 cursor-not-allowed' : ''
+                        }`}
                         value={u.role || 'user'}
                         onChange={(e) => setRole(u._id, e.target.value)}
+                        disabled={savingUserId === u._id}
                       >
                         <option value="user">Usuario</option>
                         <option value="seller">Vendedor</option>

@@ -51,7 +51,12 @@ export async function POST(request, { params }) {
     });
 
     console.log("✅ API: Rol actualizado exitosamente");
-    return NextResponse.json({ success: true, message: `Rol asignado: ${role}`, userId: targetUserId });
+    return NextResponse.json({
+      success: true,
+      message: `Rol asignado: ${role}`,
+      userId: targetUserId,
+      note: 'Los roles de administrador solo se pueden asignar desde el dashboard de Clerk por seguridad. Para cambiar el rol en producción, ve al dashboard de Clerk y actualiza publicMetadata.role'
+    });
   } catch (error) {
     console.error("❌ API: Error asignando rol:", error);
     return NextResponse.json({
