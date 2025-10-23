@@ -1,0 +1,32 @@
+[
+  {
+    "id": "doc_1761213808793",
+    "title": "Tono del chat",
+    "type": "other",
+    "category": "other",
+    "description": "Aqui se describe como va a responder el bot",
+    "fileName": "1761213808793_chatbot_tono.pdf",
+    "originalName": "chatbot_tono.pdf",
+    "size": 1462,
+    "mimeType": "application/pdf",
+    "isActive": true,
+    "createdAt": "2025-10-23T10:03:28.795Z",
+    "uploadedBy": "seller@tienda.com",
+    "lastIndexed": "2025-10-23T10:17:02.169Z"
+  },
+  {
+    "id": "doc_1761213867924",
+    "title": "politicas de la tienda",
+    "type": "policy",
+    "category": "other",
+    "description": "Políticas de la tienda",
+    "fileName": "1761213867924_store_policies.pdf",
+    "originalName": "store_policies.pdf",
+    "size": 1581,
+    "mimeType": "application/pdf",
+    "isActive": true,
+    "createdAt": "2025-10-23T10:04:27.925Z",
+    "uploadedBy": "seller@tienda.com",
+    "lastIndexed": "2025-10-23T10:17:02.169Z"
+  }
+]

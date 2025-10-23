@@ -71,7 +71,14 @@ export class HeaderSliderRepositoryImpl extends IHeaderSliderRepository {
 // Implementaciones de repositorios para el sistema de chat
 export class ConversationRepositoryImpl extends IConversationRepository {
   async findById(id) {
-    return await Conversation.findById(id);
+    // Intentar buscar por ObjectId primero
+    try {
+      return await Conversation.findById(id);
+    } catch (error) {
+      // Si falla por ObjectId inválido, buscar por sessionId
+      console.log('ObjectId inválido en ConversationRepository, buscando por sessionId');
+      return await Conversation.findOne({ sessionId: id });
+    }
   }
 
   async findByUserId(userId) {
@@ -102,11 +109,38 @@ export class ConversationRepositoryImpl extends IConversationRepository {
   }
 
   async update(id, conversationData) {
-    return await Conversation.findByIdAndUpdate(id, conversationData, { new: true });
+    // Intentar actualizar por ObjectId primero
+    try {
+      return await Conversation.findByIdAndUpdate(id, conversationData, { new: true });
+    } catch (error) {
+      // Si falla por ObjectId inválido, buscar por sessionId si está disponible
+      console.log('ObjectId inválido en ConversationRepository update');
+      if (conversationData.sessionId) {
+        return await Conversation.findOneAndUpdate(
+          { sessionId: conversationData.sessionId },
+          conversationData,
+          { new: true }
+        );
+      } else {
+        // Si id no es ObjectId válido, usarlo como sessionId
+        return await Conversation.findOneAndUpdate(
+          { sessionId: id },
+          conversationData,
+          { new: true }
+        );
+      }
+    }
   }
 
   async delete(id) {
-    return await Conversation.findByIdAndDelete(id);
+    // Intentar eliminar por ObjectId primero
+    try {
+      return await Conversation.findByIdAndDelete(id);
+    } catch (error) {
+      // Si falla por ObjectId inválido, buscar por sessionId y eliminar
+      console.log('ObjectId inválido en ConversationRepository delete, buscando por sessionId');
+      return await Conversation.findOneAndDelete({ sessionId: id });
+    }
   }
 
   async findActiveByUser(userId) {

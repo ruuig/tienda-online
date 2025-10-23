@@ -1,7 +1,10 @@
 // API para indexar documentos con RAG simplificado
 import { NextResponse } from 'next/server';
 import connectDB from '@/src/infrastructure/database/db.js';
-import { Document, DocumentChunk } from '@/src/infrastructure/database/models/index.js';
+import fs from 'fs';
+import path from 'path';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { createSimpleRAGService } from '@/src/infrastructure/rag/simpleRagService.js';
 
 const ragService = createSimpleRAGService(process.env.OPENAI_API_KEY);
@@ -23,12 +26,22 @@ export async function POST(request) {
       );
     }
 
-    // Verificar que el documento existe y pertenece al vendedor
-    const document = await Document.findOne({
-      _id: documentId,
-      vendorId,
-      isActive: true
-    });
+    // Buscar documento en el sistema de archivos (sincronizado con el sistema principal)
+    const documentsDir = join(process.cwd(), 'documents');
+    const documentsIndexPath = join(documentsDir, 'index.json');
+
+    if (!existsSync(documentsIndexPath)) {
+      return NextResponse.json(
+        { success: false, message: 'No se encontraron documentos' },
+        { status: 404 }
+      );
+    }
+
+    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
+    const documents = JSON.parse(indexData);
+
+    // Buscar el documento por ID
+    const document = documents.find(doc => doc.id === documentId && doc.isActive);
 
     if (!document) {
       return NextResponse.json(
@@ -41,13 +54,15 @@ export async function POST(request) {
     const result = await ragService.addDocument(
       documentId,
       vendorId,
-      document.contentText
+      document.content || document.description || ''
     );
 
-    // Actualizar documento como indexado
-    await Document.findByIdAndUpdate(documentId, {
-      lastIndexed: new Date()
-    });
+    // Actualizar documento en el índice de archivos
+    const documentIndex = documents.findIndex(doc => doc.id === documentId);
+    if (documentIndex !== -1) {
+      documents[documentIndex].lastIndexed = new Date().toISOString();
+      fs.writeFileSync(documentsIndexPath, JSON.stringify(documents, null, 2));
+    }
 
     console.log('✅ Documento indexado en RAG:', {
       documentId,
@@ -59,8 +74,8 @@ export async function POST(request) {
       success: true,
       message: 'Documento indexado exitosamente en el sistema RAG',
       document: {
-        id: document._id,
-        filename: document.filename,
+        id: document.id,
+        filename: document.fileName,
         embeddingLength: result.embeddingLength,
         lastIndexed: new Date()
       }
@@ -92,35 +107,55 @@ export async function PUT(request) {
       );
     }
 
-    // Re-indexar todos los documentos del vendedor
-    const documents = await Document.find({
-      vendorId,
-      isActive: true
-    });
+    // Re-indexar todos los documentos del vendedor desde el sistema de archivos
+    const documentsDir = join(process.cwd(), 'documents');
+    const documentsIndexPath = join(documentsDir, 'index.json');
+
+    if (!existsSync(documentsIndexPath)) {
+      return NextResponse.json(
+        { success: false, message: 'No se encontraron documentos' },
+        { status: 404 }
+      );
+    }
+
+    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
+    const documents = JSON.parse(indexData);
+
+    // Filtrar documentos activos del vendor
+    const activeDocuments = documents.filter(doc => doc.isActive);
 
     let successful = 0;
     let failed = 0;
     const results = [];
 
-    for (const doc of documents) {
+    for (const doc of activeDocuments) {
       try {
         await ragService.addDocument(
-          doc._id.toString(),
+          doc.id,
           vendorId,
-          doc.contentText
+          doc.content || doc.description || ''
         );
         successful++;
-        results.push({ documentId: doc._id, success: true });
+        results.push({ documentId: doc.id, success: true });
       } catch (error) {
         failed++;
-        results.push({ documentId: doc._id, success: false, error: error.message });
+        results.push({ documentId: doc.id, success: false, error: error.message });
       }
     }
+
+    // Actualizar todos los documentos como indexados
+    const updatedDocuments = documents.map(doc => {
+      if (doc.isActive) {
+        return { ...doc, lastIndexed: new Date().toISOString() };
+      }
+      return doc;
+    });
+    fs.writeFileSync(documentsIndexPath, JSON.stringify(updatedDocuments, null, 2));
 
     const success = failed === 0;
     const result = {
       success,
-      totalDocuments: documents.length,
+      totalDocuments: activeDocuments.length,
       successful,
       failed,
       results

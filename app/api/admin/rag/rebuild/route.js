@@ -1,7 +1,9 @@
 // API para reconstruir índice RAG del administrador
 import { NextResponse } from 'next/server';
-import { ragService } from '@/src/infrastructure/rag/ragService.js';
-import { documentRepository } from '@/src/infrastructure/database/repositories/documentRepository.js';
+import { RAGService } from '@/src/infrastructure/rag/ragService.js';
+import fs from 'fs';
+import { existsSync } from 'fs';
+import { join } from 'path';
 
 export async function POST(request) {
   try {
@@ -16,18 +18,32 @@ export async function POST(request) {
 
     console.log('🔄 Iniciando reconstrucción del índice RAG...');
 
-    // Obtener documentos activos
-    const documents = await documentRepository.findAll({ isActive: true });
+    // Obtener documentos activos desde el sistema de archivos
+    const documentsDir = join(process.cwd(), 'documents');
+    const documentsIndexPath = join(documentsDir, 'index.json');
 
-    if (documents.length === 0) {
+    if (!existsSync(documentsIndexPath)) {
+      return NextResponse.json(
+        { success: false, message: 'No hay documentos para indexar' },
+        { status: 400 }
+      );
+    }
+
+    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
+    const documents = JSON.parse(indexData);
+
+    // Filtrar solo documentos activos
+    const activeDocuments = documents.filter(doc => doc.isActive);
+
+    if (activeDocuments.length === 0) {
       return NextResponse.json(
         { success: false, message: 'No hay documentos activos para indexar' },
         { status: 400 }
       );
     }
 
-    // Preparar documentos para RAG (necesitan _id, title, content, type, category)
-    const ragDocuments = documents.map(doc => ({
+    // Preparar documentos para RAG
+    const ragDocuments = activeDocuments.map(doc => ({
       _id: doc.id,
       title: doc.title,
       content: doc.content || doc.description || '',
@@ -35,8 +51,9 @@ export async function POST(request) {
       category: doc.category
     }));
 
-    // Reconstruir índice
-    await ragService.rebuildIndex(ragDocuments);
+    // Crear servicio RAG y reconstruir índice
+    const ragService = new RAGService();
+    await ragService.buildIndex(ragDocuments);
 
     // Obtener estadísticas actualizadas
     const stats = ragService.getStats();
@@ -78,6 +95,7 @@ export async function GET(request) {
     }
 
     // Obtener estadísticas del RAG
+    const ragService = new RAGService();
     const stats = ragService.getStats();
 
     return NextResponse.json({
