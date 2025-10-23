@@ -25,13 +25,21 @@ export class ChatService {
     console.log('ChatService: Procesando mensaje:', { conversationId, userMessage: userMessage.substring(0, 100) });
 
     try {
+      const { ragContext: incomingRagContext, ...baseContext } = context || {};
+      const ragData = await this.prepareRagData(userMessage, incomingRagContext);
+      const aiContext = {
+        ...baseContext,
+        ragSnippets: ragData.snippets,
+        ragSources: ragData.sources
+      };
+
       console.log('ChatService: Clasificando intención...');
       // 1. Clasificar intención del mensaje
       const intent = await this.openaiClient.classifyIntent(userMessage);
       console.log('ChatService: Intención clasificada:', intent);
 
       // 2. Procesar intenciones de compra conversacional
-      const purchaseResult = await this.processPurchaseIntent(conversationId, userMessage, intent, context);
+      const purchaseResult = await this.processPurchaseIntent(conversationId, userMessage, intent, aiContext);
 
       // Si hay una respuesta específica para compra, usarla
       if (purchaseResult) {
@@ -50,7 +58,15 @@ export class ChatService {
             nextSteps: purchaseResult.nextSteps,
             products: purchaseResult.products || [], // Incluir productos si están disponibles
             processingTime: Date.now() - startTime,
-            model: 'gpt-4'
+            model: 'gpt-4',
+            usedProductContext: !!aiContext.products,
+            productsCount: aiContext.products?.length || 0,
+            rag: {
+              used: ragData.snippets.length > 0,
+              snippets: ragData.snippets,
+              sources: ragData.sources,
+              vendorId: incomingRagContext?.vendorId || null
+            }
           },
           createdAt: new Date()
         };
@@ -59,11 +75,13 @@ export class ChatService {
           success: true,
           message: botMessageData,
           intent,
-          sources: context.sources || [],
+          sources: ragData.sources,
           processingTime: Date.now() - startTime
         };
       }
 
+      // 3. Si no es compra, generar respuesta normal con OpenAI
+      const systemMessage = this.getSystemMessage(aiContext);
       // 3. Detectar consultas fuera de contexto de la tienda y responder con negativa alegre
       if (this.shouldRefuseRequest(intent, userMessage, context)) {
         console.log('ChatService: Consulta fuera de contexto detectada, enviando negativa.');
@@ -102,6 +120,7 @@ export class ChatService {
 
       console.log('ChatService: Generando respuesta con OpenAI...');
       const response = await this.openaiClient.generateResponse(messages, {
+        ...aiContext,
         intent: intent.intent,
         confidence: intent.confidence
       });
@@ -130,9 +149,15 @@ export class ChatService {
           confidence: intent.confidence,
           processingTime: Date.now() - startTime,
           model: 'gpt-4',
-          usedProductContext: !!context.products,
-          productsCount: context.products?.length || 0,
-          products: relevantProducts // Incluir productos relacionados
+          usedProductContext: !!aiContext.products,
+          productsCount: aiContext.products?.length || 0,
+          products: relevantProducts, // Incluir productos relacionados
+          rag: {
+            used: ragData.snippets.length > 0,
+            snippets: ragData.snippets,
+            sources: ragData.sources,
+            vendorId: incomingRagContext?.vendorId || null
+          }
         },
         createdAt: new Date()
       };
@@ -142,7 +167,7 @@ export class ChatService {
         success: true,
         message: botMessageData,
         intent,
-        sources: context.sources || [],
+        sources: ragData.sources,
         processingTime: Date.now() - startTime
       };
 
@@ -431,7 +456,221 @@ ${summary}
 ¡Recuerda ser siempre positivo y útil! 😄`;
     }
 
+    if (context.ragSnippets && context.ragSnippets.length > 0) {
+      const formattedSnippets = context.ragSnippets.map(snippet => {
+        const sourceLabel = snippet.source ? ` (Fuente: ${snippet.source})` : '';
+        return `[#${snippet.index}] ${snippet.title}${sourceLabel}\n${snippet.excerpt}`;
+      }).join('\n\n');
+
+      systemMessage += `
+
+📚 DOCUMENTOS DE REFERENCIA DISPONIBLES:
+${formattedSnippets}
+
+🔖 INSTRUCCIONES PARA USAR LAS FUENTES:
+- Utiliza la información de los documentos solo si es relevante para la pregunta del cliente.
+- Cuando cites información de un documento, menciona el identificador correspondiente con el formato [#n].
+- Si la respuesta no está en los documentos, indícalo y ofrece escalar a un agente humano.`;
+    }
+
     return systemMessage;
+  }
+
+  /**
+   * Prepara datos de soporte RAG para enriquecer la respuesta
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} ragContext - Contexto RAG recibido desde la ruta
+   * @returns {Promise<{matches: Array, snippets: Array, sources: Array}>}
+   */
+  async prepareRagData(userMessage, ragContext = {}) {
+    if (!ragContext) {
+      return { matches: [], snippets: [], sources: [] };
+    }
+
+    let matches = Array.isArray(ragContext.matches) ? [...ragContext.matches] : [];
+    const limit = ragContext.limit || 5;
+
+    const hasSearchService = ragContext.service && typeof ragContext.service.search === 'function';
+
+    if ((matches.length === 0) && hasSearchService) {
+      try {
+        if (ragContext.documents?.length && ragContext.service.vectorStore && ragContext.service.vectorStore.size === 0) {
+          await ragContext.service.buildIndex(ragContext.documents);
+        }
+        matches = await ragContext.service.search(userMessage, limit);
+      } catch (error) {
+        console.warn('ChatService: Error ejecutando búsqueda RAG de respaldo:', error.message);
+      }
+    }
+
+    const snippets = this.formatRagSnippets(matches, {
+      limit,
+      vendorId: ragContext.vendorId,
+      fallbackDocuments: ragContext.documents || [],
+      query: userMessage
+    });
+
+    const sources = this.extractRagSources(snippets);
+
+    return { matches, snippets, sources };
+  }
+
+  /**
+   * Convierte resultados RAG en fragmentos legibles
+   * @param {Array} matches - Resultados devueltos por el RAG
+   * @param {Object} options - Opciones de formato
+   * @returns {Array}
+   */
+  formatRagSnippets(matches, options = {}) {
+    const {
+      limit = 5,
+      vendorId = null,
+      fallbackDocuments = [],
+      query = ''
+    } = options;
+
+    let workingMatches = Array.isArray(matches) ? matches.filter(Boolean) : [];
+
+    if (workingMatches.length === 0 && fallbackDocuments.length > 0) {
+      const normalizedQuery = (query || '').toLowerCase();
+      const fallbackMatches = fallbackDocuments
+        .map(doc => {
+          const content = doc.content || '';
+          if (!content || !normalizedQuery) return null;
+          const index = content.toLowerCase().indexOf(normalizedQuery);
+          if (index === -1) return null;
+
+          const start = Math.max(0, index - 200);
+          const end = Math.min(content.length, index + normalizedQuery.length + 200);
+          const excerpt = content.substring(start, end);
+
+          return {
+            _id: doc._id || doc.id,
+            title: doc.title,
+            type: doc.type,
+            category: doc.category,
+            metadata: doc.metadata || {},
+            vendorId: doc.vendorId || vendorId,
+            relevanceScore: 0.15,
+            chunks: [
+              {
+                content: excerpt,
+                similarity: 0.15,
+                metadata: { startIndex: start, endIndex: end }
+              }
+            ]
+          };
+        })
+        .filter(Boolean);
+
+      workingMatches = fallbackMatches;
+    }
+
+    const snippets = [];
+
+    workingMatches.forEach((doc, docIndex) => {
+      const docChunks = Array.isArray(doc.chunks) && doc.chunks.length > 0
+        ? doc.chunks
+        : [{
+          content: doc.content,
+          similarity: doc.relevanceScore,
+          metadata: doc.metadata
+        }];
+
+      docChunks.forEach((chunk, chunkIndex) => {
+        const excerpt = this.truncateText(chunk?.content || '', 420);
+        if (!excerpt) {
+          return;
+        }
+
+        const similarity = typeof chunk.similarity === 'number'
+          ? chunk.similarity
+          : typeof doc.relevanceScore === 'number'
+            ? doc.relevanceScore
+            : 0;
+
+        snippets.push({
+          documentId: doc._id || doc.id || null,
+          title: doc.title || doc.metadata?.title || `Documento ${docIndex + 1}`,
+          excerpt,
+          similarity,
+          source: doc.metadata?.source || doc.source || doc.fileName || null,
+          metadata: {
+            type: doc.type || doc.metadata?.type || null,
+            category: doc.category || doc.metadata?.category || null,
+            vendorId: doc.vendorId || vendorId,
+            chunkRange: {
+              start: chunk.metadata?.startIndex ?? null,
+              end: chunk.metadata?.endIndex ?? null
+            },
+            fileName: doc.fileName || null
+          }
+        });
+      });
+    });
+
+    const ordered = snippets
+      .sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+      .slice(0, limit)
+      .map((snippet, index) => ({ ...snippet, index: index + 1 }));
+
+    return ordered;
+  }
+
+  /**
+   * Extrae información resumida de las fuentes RAG
+   * @param {Array} snippets - Fragmentos utilizados en la respuesta
+   * @returns {Array}
+   */
+  extractRagSources(snippets = []) {
+    if (!Array.isArray(snippets) || snippets.length === 0) {
+      return [];
+    }
+
+    const sourcesMap = new Map();
+
+    snippets.forEach(snippet => {
+      const key = snippet.documentId || `${snippet.title}-${snippet.source}`;
+
+      if (!sourcesMap.has(key)) {
+        sourcesMap.set(key, {
+          documentId: snippet.documentId,
+          title: snippet.title,
+          source: snippet.source,
+          similarity: snippet.similarity,
+          metadata: {
+            ...snippet.metadata,
+            snippetIndexes: [snippet.index]
+          }
+        });
+      } else {
+        const existing = sourcesMap.get(key);
+        existing.similarity = Math.max(existing.similarity || 0, snippet.similarity || 0);
+        if (existing.metadata?.snippetIndexes && !existing.metadata.snippetIndexes.includes(snippet.index)) {
+          existing.metadata.snippetIndexes.push(snippet.index);
+        }
+      }
+    });
+
+    return Array.from(sourcesMap.values()).map((source, index) => ({
+      ...source,
+      index: index + 1
+    }));
+  }
+
+  /**
+   * Recorta texto largo para mensajes de sistema
+   * @param {string} text - Texto original
+   * @param {number} length - Longitud máxima
+   * @returns {string}
+   */
+  truncateText(text, length = 420) {
+    if (!text) return '';
+    const trimmed = String(text).trim();
+    if (trimmed.length <= length) {
+      return trimmed;
+    }
+    return `${trimmed.substring(0, length).trim()}…`;
   }
 
   /**
