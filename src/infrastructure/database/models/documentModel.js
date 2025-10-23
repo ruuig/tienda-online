@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 
 const documentSchema = new mongoose.Schema({
+  vendorId: {
+    type: String,
+    default: process.env.DEFAULT_VENDOR_ID || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor',
+    index: true
+  },
   title: {
     type: String,
     required: true,

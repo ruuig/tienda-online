@@ -1,15 +1,50 @@
 import mongoose from "mongoose";
 
+const ticketMessageSchema = new mongoose.Schema({
+  senderType: {
+    type: String,
+    enum: ['user', 'admin', 'bot', 'system'],
+    required: true
+  },
+  senderId: {
+    type: String,
+    default: null
+  },
+  content: {
+    type: String,
+    required: true
+  },
+  type: {
+    type: String,
+    enum: ['text', 'note', 'update', 'attachment', 'system'],
+    default: 'text'
+  },
+  attachments: [{
+    name: String,
+    url: String,
+    mimeType: String,
+    size: Number
+  }],
+  metadata: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+}, { _id: false });
+
 const ticketSchema = new mongoose.Schema({
   conversationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Conversation',
-    required: true
+    default: null
   },
   userId: {
     type: String,
-    required: true,
-    index: true
+    index: true,
+    default: null
   },
   title: {
     type: String,
@@ -52,15 +87,56 @@ const ticketSchema = new mongoose.Schema({
     min: 1,
     max: 5 // Rating del usuario sobre la resolución
   },
+  messages: [{
+    sender: {
+      type: String,
+      enum: ['customer', 'admin', 'system'],
+      required: true
+    },
+    senderName: {
+      type: String,
+      default: null
+    },
+    senderEmail: {
+      type: String,
+      default: null
+    },
+    content: {
+      type: String,
+      required: true
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   metadata: {
     source: String, // De dónde viene el ticket (chat, email, phone)
     channel: String, // Canal específico
+    senderName: String,
+    senderEmail: String,
+    subject: String,
     firstResponseTime: Date,
     resolutionTime: Date,
     reopenedCount: {
       type: Number,
       default: 0
     }
+    type: new mongoose.Schema({
+      source: String, // De dónde viene el ticket (chat, email, phone)
+      channel: String, // Canal específico
+      firstResponseTime: Date,
+      resolutionTime: Date,
+      reopenedCount: {
+        type: Number,
+        default: 0
+      }
+    }, { _id: false }),
+    default: {}
+  },
+  messages: {
+    type: [ticketMessageSchema],
+    default: []
   },
   createdAt: {
     type: Date,
@@ -79,6 +155,7 @@ ticketSchema.index({ userId: 1, status: 1 });
 ticketSchema.index({ status: 1, priority: 1, createdAt: -1 });
 ticketSchema.index({ assignedTo: 1, status: 1 });
 ticketSchema.index({ category: 1, status: 1 });
+ticketSchema.index({ 'metadata.source': 1, status: 1 });
 
 const Ticket = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
 
