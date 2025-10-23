@@ -121,7 +121,7 @@ const About = () => {
           className="w-full h-full object-cover"
         />
       </div>
-      <h3 className="text-xl font-semibold text-gray-800 mb-2">Jan Carlos René Marcos</h3>
+      <h3 className="text-xl font-semibold text-gray-800 mb-2">Jan Carlos René Marcos Marín</h3>
       <p className="text-secondary-600 mb-2">Director de estrategia comercial</p>
       <p className="text-gray-600 text-sm">
         Planificador de ventas, análisis del mercado y encargado de hacer tratos con proveedores.

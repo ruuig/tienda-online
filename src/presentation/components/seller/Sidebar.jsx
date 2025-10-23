@@ -11,6 +11,7 @@ const SideBar = () => {
         { name: 'Lista de Productos', path: '/seller/product-list', icon: assets.product_list_icon },
         { name: 'Gestionar Slider', path: '/seller/slider-management', icon: assets.add_icon },
         { name: 'Ordenes', path: '/seller/orders', icon: assets.order_icon },
+        { name: 'Usuarios', path: '/seller/users', icon: assets.user_icon },
     ];
 
     return (
