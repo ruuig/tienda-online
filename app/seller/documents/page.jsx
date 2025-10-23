@@ -43,6 +43,44 @@ const formatDate = (dateString) => {
   }).format(date)
 }
 
+const normalizeRagStats = (stats = {}) => {
+  const documents = stats.documents ?? stats.processedDocuments ?? null
+  const chunks = stats.chunks ?? stats.processedChunks ?? null
+  const documentsFromList = Array.isArray(documents) ? documents.length : undefined
+  const chunksFromList = Array.isArray(chunks) ? chunks.length : undefined
+
+  const documentsIndexed =
+    stats.documentsIndexed ??
+    stats.documentsProcessed ??
+    stats.totalDocuments ??
+    stats.totalChunks ??
+    documentsFromList ??
+    0
+
+  const chunksIndexed =
+    stats.chunksIndexed ??
+    stats.indexedChunks ??
+    stats.totalChunks ??
+    chunksFromList ??
+    0
+
+  const memoryUsage = stats.memoryUsage ?? stats.totalSize ?? '—'
+  const lastUpdate = stats.lastUpdate ?? stats.updatedAt ?? null
+
+  return {
+    ...stats,
+    documents,
+    chunks,
+    documentsIndexed,
+    chunksIndexed,
+    totalDocuments: stats.totalDocuments ?? documentsIndexed,
+    totalChunks: stats.totalChunks ?? chunksIndexed,
+    memoryUsage,
+    lastUpdate,
+    isLoaded: stats.isLoaded ?? stats.initialized ?? true
+  }
+}
+
 const DocumentsPage = () => {
   const [formValues, setFormValues] = useState({
     title: '',
@@ -58,6 +96,7 @@ const DocumentsPage = () => {
   const [loadingStats, setLoadingStats] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [indexing, setIndexing] = useState(false)
+  const [rebuildingIndex, setRebuildingIndex] = useState(false)
   const [activeDocumentAction, setActiveDocumentAction] = useState(null)
 
   const fetchDocuments = useCallback(async () => {
@@ -87,10 +126,61 @@ const DocumentsPage = () => {
     }
   }, [])
 
-  const fetchRagStats = useCallback(async () => {
-    setLoadingStats(true)
+  const triggerReindex = useCallback(async () => {
+    setRebuildingIndex(true)
+
     try {
       const response = await fetch('/api/admin/rag/rebuild', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'seller@tienda.com'
+        },
+        body: JSON.stringify({})
+      })
+
+      let data
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        data = {}
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || 'No fue posible reconstruir el índice RAG')
+      }
+
+      if (data.stats) {
+        setRagStats((prev) => ({
+          ...prev,
+          ...normalizeRagStats(data.stats)
+        }))
+      }
+
+      return data
+    } catch (error) {
+      console.error('Error reconstruyendo índice RAG:', error)
+      const message = error?.message || 'Error reconstruyendo índice RAG'
+      toast.error(message)
+
+      if (error && typeof error === 'object') {
+        error.alreadyHandled = true
+        throw error
+      }
+
+      const handledError = new Error(message)
+      handledError.alreadyHandled = true
+      throw handledError
+    } finally {
+      setRebuildingIndex(false)
+    }
+  }, [])
+
+  const fetchRagStats = useCallback(async ({ force = true } = {}) => {
+    setLoadingStats(true)
+    try {
+      const query = force ? '?force=true' : ''
+      const response = await fetch(`/api/admin/rag/rebuild${query}`, {
         method: 'GET',
         headers: {
           Authorization: 'seller@tienda.com'
@@ -98,13 +188,18 @@ const DocumentsPage = () => {
         cache: 'no-store'
       })
 
-      const data = await response.json()
+      let data
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        data = {}
+      }
 
-      if (!response.ok || !data.success) {
+      if (!response.ok || data.success === false) {
         throw new Error(data.message || 'No fue posible obtener las estadísticas de indexación')
       }
 
-      setRagStats(data.stats || null)
+      setRagStats(data.stats ? normalizeRagStats(data.stats) : null)
     } catch (error) {
       console.error('Error fetching RAG stats:', error)
       toast.error(error.message || 'Error obteniendo estado del índice RAG')
@@ -114,9 +209,20 @@ const DocumentsPage = () => {
   }, [])
 
   useEffect(() => {
-    fetchDocuments()
-    fetchRagStats()
-  }, [fetchDocuments, fetchRagStats])
+    const initialize = async () => {
+      await fetchDocuments()
+
+      try {
+        await triggerReindex()
+      } catch (error) {
+        console.error('Initial RAG rebuild failed:', error)
+      }
+
+      await fetchRagStats({ force: true })
+    }
+
+    initialize()
+  }, [fetchDocuments, fetchRagStats, triggerReindex])
 
   const handleInputChange = (event) => {
     const { name, value } = event.target
@@ -210,7 +316,7 @@ const DocumentsPage = () => {
       }
 
       toast.success('Documento enviado a indexación')
-      await fetchRagStats()
+      await fetchRagStats({ force: true })
     } catch (error) {
       console.error('Error indexing document:', error)
       toast.error(error.message || 'Error indexando documento')
@@ -241,10 +347,13 @@ const DocumentsPage = () => {
       }
 
       toast.success('Re-indexación iniciada correctamente')
-      await fetchRagStats()
+      await triggerReindex()
+      await fetchRagStats({ force: true })
     } catch (error) {
       console.error('Error reindexing documents:', error)
-      toast.error(error.message || 'Error re-indexando documentos')
+      if (!error?.alreadyHandled) {
+        toast.error(error.message || 'Error re-indexando documentos')
+      }
     } finally {
       setIndexing(false)
       setActiveDocumentAction(null)
@@ -424,20 +533,30 @@ const DocumentsPage = () => {
             </div>
             <button
               onClick={handleReindexAll}
-              disabled={indexing}
+              disabled={indexing || rebuildingIndex}
               className="inline-flex items-center justify-center rounded-lg border border-secondary-600 px-3 py-1 text-xs font-semibold text-secondary-600 transition hover:bg-secondary-50 disabled:cursor-not-allowed disabled:border-secondary-300 disabled:text-secondary-300"
             >
-              {indexing && activeDocumentAction === 'all' ? 'Procesando...' : 'Re-indexar todo'}
+              {rebuildingIndex || (indexing && activeDocumentAction === 'all') ? 'Reindexando...' : 'Re-indexar todo'}
             </button>
           </div>
 
-          {loadingStats ? (
+          {rebuildingIndex ? (
+            <p className="mt-3 text-sm text-secondary-600">Reconstruyendo índice...</p>
+          ) : loadingStats ? (
             <p className="mt-3 text-sm text-gray-500">Cargando...</p>
           ) : ragStats ? (
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4 lg:grid-cols-5">
               <div className="rounded-lg bg-secondary-50 p-3">
                 <dt className="text-gray-500">Documentos indexados</dt>
-                <dd className="text-lg font-semibold text-secondary-700">{ragStats.indexedChunks ?? ragStats.totalChunks ?? 0}</dd>
+                <dd className="text-lg font-semibold text-secondary-700">
+                  {ragStats.documentsIndexed ?? ragStats.totalDocuments ?? 0}
+                </dd>
+              </div>
+              <div className="rounded-lg bg-secondary-50 p-3">
+                <dt className="text-gray-500">Chunks indexados</dt>
+                <dd className="text-lg font-semibold text-secondary-700">
+                  {ragStats.chunksIndexed ?? ragStats.indexedChunks ?? 0}
+                </dd>
               </div>
               <div className="rounded-lg bg-secondary-50 p-3">
                 <dt className="text-gray-500">Memoria</dt>
@@ -450,7 +569,7 @@ const DocumentsPage = () => {
               <div className="rounded-lg bg-secondary-50 p-3">
                 <dt className="text-gray-500">Estado</dt>
                 <dd className="text-sm font-medium text-secondary-700">
-                  {ragStats.initialized === false ? 'Sin inicializar' : 'Activo'}
+                  {ragStats.isLoaded === false ? 'Sin inicializar' : 'Activo'}
                 </dd>
               </div>
             </dl>
