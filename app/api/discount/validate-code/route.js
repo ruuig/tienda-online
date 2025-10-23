@@ -23,11 +23,6 @@ export async function POST(request) {
       return NextResponse.json({ success: false, message: 'Código de descuento no válido' })
     }
 
-    // Verificar si pertenece al usuario (solo vendedores pueden ver sus propios descuentos)
-    if (userId && discount.userId !== userId) {
-      return NextResponse.json({ success: false, message: 'No tienes permisos para usar este código' })
-    }
-
     // Verificar fechas de validez
     const now = new Date()
     if (discount.startDate && discount.startDate > now) {

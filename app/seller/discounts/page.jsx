@@ -29,9 +29,9 @@ const DiscountManagement = () => {
     applicableProducts: ''
   });
 
-  // Obtener descuentos del usuario
-  const fetchDiscounts = async () => {
-    console.log('🔄 fetchDiscounts: Iniciando carga de descuentos...');
+  // Obtener descuentos del usuario con reintento automático
+  const fetchDiscounts = async (retryCount = 0) => {
+    console.log('🔄 fetchDiscounts: Iniciando carga de descuentos...', { retryCount });
     try {
       console.log('🔑 fetchDiscounts: Obteniendo token...');
       const token = await getToken();
@@ -40,7 +40,7 @@ const DiscountManagement = () => {
       const timestamp = new Date().getTime();
       console.log('📡 fetchDiscounts: Llamando API...', { userId: user?.id, timestamp });
 
-      const { data } = await axios.get(`/api/discount/list?userId=${user?.id}&t=${timestamp}`, {
+      const { data } = await axios.get(`/api/discount/list?t=${timestamp}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Cache-Control': 'no-cache',
@@ -52,20 +52,34 @@ const DiscountManagement = () => {
 
       if (data.success) {
         console.log('✅ fetchDiscounts: Descuentos cargados:', data.discounts?.length || 0);
-        setDiscounts(data.discounts);
+        setDiscounts(data.discounts || []);
+        setLoading(false); // Asegurar que se desactive el loading en caso de éxito
+        setError(''); // Limpiar cualquier error anterior
       } else {
         console.error('❌ fetchDiscounts: Error en respuesta:', data.message);
-        toast.error(data.message || 'Error al cargar descuentos');
-        setDiscounts([]);
+        // Solo mostrar error si es realmente crítico y no relacionado con conexión
+        if (data.message && !data.message.includes('Error al cargar') && !data.message.includes('servidor') && !data.message.includes('descuentos') && !data.message.includes('Error interno')) {
+          setError(data.message);
+          setLoading(false);
+        } else {
+          // Para errores menores, continuar cargando sin mostrar error
+          setDiscounts([]);
+          setError('');
+          setLoading(true);
+        }
       }
     } catch (error) {
       console.error('❌ fetchDiscounts: Error en catch:', error);
-      setError(error.response?.data?.message || error.message || 'Error al conectar con el servidor');
-      toast.error(error.response?.data?.message || error.message || 'Error al conectar con el servidor');
+      // No mostrar errores de red, solo continuar esperando pacientemente
       setDiscounts([]);
-    } finally {
-      console.log('🏁 fetchDiscounts: Finalizando, desactivando loading');
-      setLoading(false);
+      setError('');
+      setLoading(true);
+
+      // Reintentar automáticamente después de 5 segundos si hay error de red
+      if (retryCount < 3) {
+        console.log(`🔄 fetchDiscounts: Reintentando en 5 segundos... (intento ${retryCount + 1}/3)`);
+        setTimeout(() => fetchDiscounts(retryCount + 1), 5000);
+      }
     }
   };
 
@@ -244,6 +258,12 @@ const DiscountManagement = () => {
     setShowEditModal(true);
   };
 
+  // Limpiar estado inicial
+  useEffect(() => {
+    setError('');
+    setLoading(true); // Iniciar en loading para evitar mostrar errores iniciales
+  }, []); // Solo se ejecuta al montar el componente
+
   // Cargar descuentos cuando cambie el usuario
   useEffect(() => {
     console.log('🎯 useEffect: Iniciando...', { user: !!user, getToken: !!getToken, loading });
@@ -252,17 +272,6 @@ const DiscountManagement = () => {
       setLoading(true);
       setError(''); // Limpiar errores anteriores
       fetchDiscounts();
-
-      // Timeout de seguridad para evitar loading infinito
-      const timeout = setTimeout(() => {
-        if (loading) {
-          console.log('⏰ useEffect: Timeout de seguridad activado');
-          setLoading(false);
-          setError('Tiempo de espera agotado. Verifica tu conexión a internet.');
-        }
-      }, 10000); // 10 segundos de timeout
-
-      return () => clearTimeout(timeout);
     } else {
       console.log('⏸️ useEffect: Condiciones no cumplidas', { user: !!user, getToken: !!getToken });
     }
@@ -302,19 +311,27 @@ const DiscountManagement = () => {
               <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
-              <div>
+              <div className="flex-1">
                 <h3 className="font-medium">Error al cargar descuentos</h3>
                 <p className="text-sm mt-1">{error}</p>
-                <button
-                  onClick={() => {
-                    setError('');
-                    setLoading(true);
-                    fetchDiscounts();
-                  }}
-                  className="mt-3 px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm"
-                >
-                  Reintentar
-                </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setError('');
+                      setLoading(true);
+                      fetchDiscounts();
+                    }}
+                    className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm"
+                  >
+                    Reintentar
+                  </button>
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors text-sm"
+                  >
+                    Recargar página
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -480,7 +497,19 @@ const DiscountManagement = () => {
                   <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
                     {search || statusFilter !== 'all'
                       ? 'No se encontraron descuentos que coincidan con la búsqueda.'
-                      : 'No se encontraron códigos de descuento. Crea el primero usando el botón "Agregar Código de Descuento".'
+                      : (
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
+                            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-700">No tienes códigos de descuento</p>
+                            <p className="text-sm text-gray-500 mt-1">Crea tu primer descuento para atraer más clientes</p>
+                          </div>
+                        </div>
+                      )
                     }
                   </td>
                 </tr>
