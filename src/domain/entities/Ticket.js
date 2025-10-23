@@ -1,9 +1,108 @@
 // Entidad de dominio Ticket (no depende de infraestructura)
 export class Ticket {
-  constructor(id, conversationId, userId, title, description, status, priority, category, assignedTo, tags, resolution, satisfaction, metadata, createdAt, updatedAt) {
-    this.id = id;
-    this.conversationId = conversationId;
-    this.userId = userId;
+  constructor(
+    idOrData,
+    conversationId,
+    userId,
+    title,
+    description,
+    status,
+    priority,
+    category,
+    assignedTo,
+    tags,
+    resolution,
+    satisfaction,
+    metadata,
+    createdAt,
+    updatedAt,
+    messages
+  ) {
+    if (idOrData && typeof idOrData === 'object' && !Array.isArray(idOrData)) {
+      this.#initializeFromObject(idOrData);
+      return;
+    }
+
+    this.#initializeFromParams({
+      id: idOrData,
+      conversationId,
+      userId,
+      title,
+      description,
+      status,
+      priority,
+      category,
+      assignedTo,
+      tags,
+      resolution,
+      satisfaction,
+      metadata,
+      createdAt,
+      updatedAt,
+      messages
+    });
+  }
+
+  #initializeFromObject({
+    id,
+    _id,
+    conversationId = null,
+    userId = null,
+    title,
+    description,
+    status = 'open',
+    priority = 'medium',
+    category,
+    assignedTo = null,
+    tags = [],
+    resolution,
+    satisfaction,
+    metadata = {},
+    createdAt,
+    updatedAt,
+    messages = []
+  }) {
+    this.#initializeFromParams({
+      id: id ?? _id ?? null,
+      conversationId,
+      userId,
+      title,
+      description,
+      status,
+      priority,
+      category,
+      assignedTo,
+      tags,
+      resolution,
+      satisfaction,
+      metadata,
+      createdAt,
+      updatedAt,
+      messages
+    });
+  }
+
+  #initializeFromParams({
+    id,
+    conversationId = null,
+    userId = null,
+    title,
+    description,
+    status = 'open',
+    priority = 'medium',
+    category,
+    assignedTo = null,
+    tags = [],
+    resolution,
+    satisfaction,
+    metadata = {},
+    createdAt,
+    updatedAt,
+    messages = []
+  }) {
+    this.id = id ?? null;
+    this.conversationId = conversationId ?? null;
+    this.userId = userId ?? null;
     this.title = title;
     this.description = description;
     this.status = status; // open, in_progress, waiting_user, resolved, closed, escalated
@@ -14,14 +113,28 @@ export class Ticket {
     this.resolution = resolution;
     this.satisfaction = satisfaction; // 1-5 rating
     this.metadata = metadata || {};
-    this.createdAt = createdAt;
-    this.updatedAt = updatedAt;
+    this.messages = Array.isArray(messages) ? messages : [];
+    this.createdAt = createdAt ?? new Date();
+    this.updatedAt = updatedAt ?? new Date();
+  }
+
+  ensureMetadata() {
+    if (!this.metadata) {
+      this.metadata = {};
+    }
+  }
+
+  ensureMessages() {
+    if (!Array.isArray(this.messages)) {
+      this.messages = [];
+    }
   }
 
   // Métodos de dominio
   assignTo(adminId) {
     this.assignedTo = adminId;
     this.status = 'in_progress';
+    this.ensureMetadata();
     this.metadata.firstResponseTime = new Date();
     this.updatedAt = new Date();
   }
@@ -31,6 +144,7 @@ export class Ticket {
     if (validStatuses.includes(newStatus)) {
       this.status = newStatus;
       if (newStatus === 'resolved') {
+        this.ensureMetadata();
         this.metadata.resolutionTime = new Date();
       }
       this.updatedAt = new Date();
@@ -40,6 +154,7 @@ export class Ticket {
   addResolution(resolution) {
     this.resolution = resolution;
     this.status = 'resolved';
+    this.ensureMetadata();
     this.metadata.resolutionTime = new Date();
     this.updatedAt = new Date();
   }
@@ -58,15 +173,33 @@ export class Ticket {
     }
   }
 
+  addMessage(message) {
+    if (!message || typeof message !== 'object') return;
+
+    this.ensureMessages();
+    const { createdAt, ...rest } = message;
+    this.messages.push({
+      ...rest,
+      createdAt: createdAt ? new Date(createdAt) : new Date()
+    });
+    this.updatedAt = new Date();
+  }
+
+  matchesSource(source) {
+    if (!source) return true;
+    return (this.metadata && this.metadata.source) === source;
+  }
+
   reopen() {
     this.status = 'open';
+    this.ensureMetadata();
     this.metadata.reopenedCount = (this.metadata.reopenedCount || 0) + 1;
     this.updatedAt = new Date();
   }
 
   // Calcular tiempo de resolución en horas
   getResolutionTimeHours() {
-    if (!this.metadata.resolutionTime || !this.createdAt) return 0;
+    if (!this.metadata || !this.metadata.resolutionTime || !this.createdAt) return 0;
     return Math.floor((this.metadata.resolutionTime - this.createdAt) / (1000 * 60 * 60));
   }
 
