@@ -54,25 +54,64 @@ const Contact = () => {
     let map
     const init = async () => {
       if (typeof window === 'undefined') return
-      const { default: L } = await import('leaflet')
 
-      const lat = 14.796436
-      const lng = -89.546711
-      map = L.map('map').setView([lat, lng], 16)
+      // Verificar si el contenedor ya tiene un mapa inicializado
+      const mapContainer = document.getElementById('map')
+      if (!mapContainer) {
+        console.log('🗺️ Contenedor del mapa no encontrado')
+        return
+      }
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
-      }).addTo(map)
+      // Verificar si ya existe un mapa en este contenedor
+      if (window.mapInstance && window.mapInstance.getContainer() === mapContainer) {
+        console.log('🗺️ Mapa ya inicializado en el contenedor')
+        return
+      }
 
-      L.marker([lat, lng])
-        .addTo(map)
-        .bindPopup('<b>RJG Tech Shop</b><br>Ubicación: Parque El Calvario, Chiquimula.')
-        .openPopup()
+      try {
+        const { default: L } = await import('leaflet')
+
+        const lat = 14.796436
+        const lng = -89.546711
+
+        // Intentar crear el mapa
+        map = L.map('map', {
+          center: [lat, lng],
+          zoom: 16
+        })
+
+        // Si llega aquí, el mapa se creó correctamente
+        window.mapInstance = map
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+        }).addTo(map)
+
+        L.marker([lat, lng])
+          .addTo(map)
+          .bindPopup('<b>RJG Tech Shop</b><br>Ubicación: Parque El Calvario, Chiquimula.')
+          .openPopup()
+
+        console.log('🗺️ Mapa inicializado correctamente')
+      } catch (error) {
+        console.error('❌ Error inicializando mapa:', error)
+        if (error.message.includes('Map container is already initialized')) {
+          console.log('🗺️ El mapa ya estaba inicializado, omitiendo')
+        }
+      }
     }
 
     init()
-    return () => { if (map) map.remove() }
+    return () => {
+      if (map && map.remove) {
+        console.log('🗺️ Limpiando mapa')
+        map.remove()
+        if (window.mapInstance === map) {
+          delete window.mapInstance
+        }
+      }
+    }
   }, [])
 
   return (
