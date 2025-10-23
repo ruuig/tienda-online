@@ -2,9 +2,9 @@
 import { NextResponse } from 'next/server';
 import connectDB from '@/src/infrastructure/database/db.js';
 import { Document } from '@/src/infrastructure/database/models/index.js';
-import { createRAGService } from '@/src/infrastructure/rag/ragService.js';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 
-const ragService = createRAGService(process.env.OPENAI_API_KEY);
+const ragService = getSharedRAGService();
 
 export async function POST(request) {
   try {
@@ -37,10 +37,15 @@ export async function POST(request) {
       );
     }
 
-    // Indexar documento con RAG
-    const result = await ragService.indexDocument(documentId, vendorId);
+    const plainDocument = typeof document.toObject === 'function' ? document.toObject() : document;
+    const [indexedDocument] = await ragService.buildIndex([plainDocument], {
+      vendorId,
+      replaceExisting: false,
+    });
 
-    console.log(`✅ Documento indexado: ${documentId} (${result.chunksIndexed} chunks)`);
+    const chunksIndexed = indexedDocument?.chunks?.length || 0;
+
+    console.log(`✅ Documento indexado: ${documentId} (${chunksIndexed} chunks)`);
 
     return NextResponse.json({
       success: true,
@@ -48,7 +53,7 @@ export async function POST(request) {
       document: {
         id: document._id,
         filename: document.filename,
-        chunksIndexed: result.chunksIndexed,
+        chunksIndexed,
         lastIndexed: new Date()
       }
     });
@@ -79,22 +84,19 @@ export async function PUT(request) {
       );
     }
 
-    // Re-indexar todos los documentos del vendedor
-    const result = await ragService.reindexAllDocuments(vendorId);
+    const result = await ragService.rebuildIndex({ vendorId });
 
     console.log(`✅ Re-indexación completada para vendor ${vendorId}`);
 
     return NextResponse.json({
-      success: result.success,
-      message: result.success
-        ? 'Todos los documentos han sido re-indexados exitosamente'
-        : 'Algunos documentos no pudieron ser indexados',
+      success: true,
+      message: 'Todos los documentos han sido re-indexados exitosamente',
       stats: {
-        totalDocuments: result.totalDocuments,
-        successful: result.successful,
-        failed: result.failed
+        totalDocuments: result.documentsIndexed,
+        successful: result.documentsIndexed,
+        failed: 0
       },
-      results: result.results
+      results: []
     });
 
   } catch (error) {
