@@ -8,7 +8,7 @@ export class CreateOrderUseCase {
     this.productRepository = productRepository;
   }
 
-  async execute(userId, address, items) {
+  async execute(userId, address, items, discountId = null, discountAmount = 0) {
     try {
       // Validar datos
       if (!address || !items || items.length === 0) {
@@ -25,13 +25,23 @@ export class CreateOrderUseCase {
       }
 
       // Agregar impuesto (2%)
-      const totalAmount = amount + Math.floor(amount * 0.02);
+      const taxAmount = Math.floor(amount * 0.02);
+      const subtotalWithTax = amount + taxAmount;
+
+      // Aplicar descuento si existe
+      const finalAmount = discountAmount > 0
+        ? Math.max(0, subtotalWithTax - discountAmount)
+        : subtotalWithTax;
 
       // Crear orden
       const orderData = {
         userId,
         items,
-        amount: totalAmount,
+        amount: finalAmount,
+        originalAmount: subtotalWithTax,
+        discountAmount: discountAmount,
+        discountId: discountId,
+        taxAmount: taxAmount,
         address,
         status: 'Order Placed',
         date: Date.now()

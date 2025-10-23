@@ -22,6 +22,7 @@ const SideBar = () => {
         { name: 'Agregar Producto', path: '/seller', icon: assets.add_icon },
         { name: 'Lista de Productos', path: '/seller/product-list', icon: assets.product_list_icon },
         { name: 'Gestionar Slider', path: '/seller/slider-management', icon: assets.add_icon },
+        { name: 'Códigos de Descuento', path: '/seller/discounts', icon: assets.add_icon },
         { name: 'Ordenes', path: '/seller/orders', icon: assets.order_icon },
     ];
 

@@ -16,9 +16,11 @@ export async function POST(request) {
             return NextResponse.json({ success: false, message: 'Usuario no autenticado' });
         }
 
-        const { address, items } = await request.json();
+        const { address, items, discountId, discountAmount } = await request.json();
         console.log('Order creation - address:', address)
         console.log('Order creation - items:', items)
+        console.log('Order creation - discountId:', discountId)
+        console.log('Order creation - discountAmount:', discountAmount)
 
         // Usar caso de uso
         const orderRepository = new OrderRepositoryImpl()
@@ -26,7 +28,7 @@ export async function POST(request) {
         const productRepository = new ProductRepositoryImpl()
         const createOrderUseCase = new CreateOrderUseCase(orderRepository, userRepository, productRepository)
 
-        const result = await createOrderUseCase.execute(userId, address, items)
+        const result = await createOrderUseCase.execute(userId, address, items, discountId, discountAmount)
 
         if (!result.success) {
             console.error('Order creation - Error:', result.message)
