@@ -1,11 +1,13 @@
 'use client'
 import React, { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
 
 export default function SellerUsersPage() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [savingUserId, setSavingUserId] = useState(null) // 🔒 deshabilitar select mientras guarda
 
   const refresh = async () => {
     try {
@@ -26,11 +28,24 @@ export default function SellerUsersPage() {
   }, [])
 
   const setRole = async (targetUserId, newRole) => {
+    // Estado previo para rollback
+    const prevUsers = users
     // Optimistic UI
-    const prev = users
-    setUsers(prev =>
-      prev.map(u => (u._id === targetUserId ? { ...u, role: newRole } : u))
-    )
+    setUsers(prev => prev.map(u => (u._id === targetUserId ? { ...u, role: newRole } : u)))
+    setSavingUserId(targetUserId)
+
+    const loadingId = toast.loading('Guardando cambios...')
+
+    // Intenta parsear JSON; si viene HTML, crea error legible
+    const parseJSONorThrow = async (res) => {
+      const raw = await res.text()
+      try {
+        return JSON.parse(raw)
+      } catch {
+        const snippet = raw.replace(/\s+/g, ' ').slice(0, 160)
+        throw new Error(`Respuesta no válida del servidor (HTTP ${res.status}): ${snippet}`)
+      }
+    }
 
     try {
       const res = await fetch(`/api/admin/users/set-role/${targetUserId}`, {
@@ -38,14 +53,23 @@ export default function SellerUsersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       })
-      const data = await res.json()
-      if (!res.ok || !data.success) throw new Error(data.message || 'No se pudo asignar el rol')
-      // Re-sync con backend por si hubo cambios colaterales
+
+      const data = await parseJSONorThrow(res)
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'No se pudo asignar el rol')
+      }
+
+      toast.dismiss(loadingId)
+      toast.success(`Rol actualizado a "${newRole}"`)
       await refresh()
     } catch (e) {
-      alert(e.message)
-      // Rollback si falló
-      setUsers(prev)
+      // Rollback + toast de error SIN icono
+      setUsers(prevUsers)
+      toast.dismiss(loadingId)
+      toast.error(e.message || 'No se pudo asignar el rol', { icon: null })
+    } finally {
+      setSavingUserId(null)
     }
   }
 
@@ -142,9 +166,12 @@ export default function SellerUsersPage() {
                     </span>
 
                     <select
-                      className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-secondary-500"
+                      className={`border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-secondary-500 ${
+                        savingUserId === u._id ? 'opacity-60 cursor-not-allowed' : ''
+                      }`}
                       value={u.role || 'user'}
                       onChange={(e) => setRole(u._id, e.target.value)}
+                      disabled={savingUserId === u._id}
                     >
                       <option value="user">user</option>
                       <option value="seller">seller</option>
