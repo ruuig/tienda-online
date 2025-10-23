@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import connectDB from '@/config/db';
 import { TicketRepositoryImpl } from '@/src/infrastructure/database/repositories';
 
+import { ContactConfigurationError, sendContactEmail } from '../../../src/infrastructure/contact/sendContactEmail.js';
 export const runtime = 'nodejs';
 
 export async function POST(req) {
@@ -70,9 +71,16 @@ ${message}
       replyTo: `${name} <${email}>`,
       text: textBody,
     });
+    const { info } = await sendContactEmail({ name, email, subject, message });
 
     return new Response(JSON.stringify({ ok: true, message: "Mensaje enviado correctamente", ticketId: ticket._id.toString(), emailId: info.messageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (err) {
+    if (err instanceof ContactConfigurationError) {
+      return new Response(
+        JSON.stringify({ ok: false, error: err.message }),
+        { status: err.status || 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     console.error("Error al enviar correo:", err);
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
