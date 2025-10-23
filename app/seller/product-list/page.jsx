@@ -131,6 +131,26 @@ const ProductList = () => {
   const { router, getToken, user } = useAppContext()
   const pathname = usePathname()
 
+  // Verificar que el usuario tenga permisos de vendedor
+  const userRole = user?.publicMetadata?.role || 'user';
+  if (userRole !== 'admin' && userRole !== 'seller') {
+    return (
+      <div className="flex-1 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Acceso Denegado</h1>
+          <p className="text-gray-600 mb-4">Solo los administradores y vendedores pueden ver productos.</p>
+          <p className="text-sm text-gray-500">Tu rol actual: {userRole}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 px-4 py-2 bg-secondary-500 text-white rounded hover:bg-secondary-600 transition-colors"
+          >
+            Ir al Inicio
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const [products, setProducts] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -431,7 +451,6 @@ const ProductList = () => {
               )}
             </tbody>
           </table>
-        
       </div>}
     </div>
   );
