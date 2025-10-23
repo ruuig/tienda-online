@@ -222,13 +222,19 @@ const EditProduct = () => {
               onChange={(e) => setCategory(e.target.value)}
               value={category}
             >
-              <option value="Earphone">Audífonos</option>
-              <option value="Headphone">Auriculares</option>
-              <option value="Watch">Relojes</option>
-              <option value="Smartphone">Teléfonos</option>
-              <option value="Laptop">Laptops</option>
-              <option value="Camera">Cámaras</option>
+             
               <option value="Accessories">Accesorios</option>
+              <option value="Smartphone">Smartphones</option>
+              <option value="Laptop">Computadoras</option>
+              <option value="Earphone">Earphones</option>
+              <option value="Headphone">Headphones</option>
+              <option value="Watch">Relojes Inteligentes</option>
+              <option value="Camera">Cámaras</option>
+              <option value="Tablet">Tablets</option>
+              <option value="Console">Consolas</option>
+              <option value="Gaming">Juegos</option>
+              <option value="Home">Hogar</option>
+    
             </select>
           </div>
           <div className="flex flex-col gap-1 w-32">

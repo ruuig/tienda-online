@@ -1,5 +1,5 @@
 "use client"
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { assets, BagIcon, BoxIcon, CartIcon, HomeIcon } from "@/src/assets/assets";
 import Link from "next/link"
 import { useAppContext } from "@/context/AppContext";
@@ -12,6 +12,7 @@ const Navbar = () => {
   const { openSignIn } = useClerk()
   const [showSearchModal, setShowSearchModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
 
   const cartCount = getCartCount();
 
@@ -20,9 +21,22 @@ const Navbar = () => {
       // Redirigir a la tienda con el término de búsqueda
       router.push(`/all-products?search=${encodeURIComponent(searchQuery.trim())}`)
       setShowSearchModal(false)
+      setShowMobileMenu(false)
       setSearchQuery('')
     }
   }
+
+  // Cerrar menú móvil cuando se hace clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showMobileMenu && !event.target.closest('.mobile-menu-container')) {
+        setShowMobileMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showMobileMenu])
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
@@ -121,82 +135,119 @@ const Navbar = () => {
           }
         </ul>
 
-        <div className="flex items-center md:hidden gap-3">
-          {isSeller &&
+        <div className="flex items-center md:hidden gap-2">
+          {/* Botón de búsqueda para móvil */}
+          <button
+            onClick={() => setShowSearchModal(true)}
+            className="p-2 hover:bg-primary-50 rounded-full transition-colors"
+            aria-label="Buscar productos"
+          >
+            <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </button>
+
+          {/* Carrito - solo si hay usuario */}
+          {user && (
+            <button
+              onClick={() => router.push('/cart')}
+              className="relative p-2 hover:bg-primary-50 rounded-full transition-colors"
+              aria-label="Carrito de compras"
+            >
+              <CartIcon className="w-5 h-5 text-primary-800" />
+              {cartCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-secondary-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
+                  {cartCount > 99 ? '99+' : cartCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Menú hamburguesa para navegación principal */}
+          <div className="relative mobile-menu-container">
+            <button
+              onClick={() => setShowMobileMenu(!showMobileMenu)}
+              className="p-2 hover:bg-primary-50 rounded-full transition-colors"
+              aria-label="Menú de navegación"
+            >
+              <svg className="w-5 h-5 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+
+            {/* Menú desplegable */}
+            {showMobileMenu && (
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-primary-200 py-2 z-50">
+                <Link
+                  href="/"
+                  className="flex items-center gap-3 px-4 py-2 text-sm text-primary-800 hover:bg-primary-50 transition-colors"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <HomeIcon className="w-4 h-4" />
+                  Inicio
+                </Link>
+                <Link
+                  href="/all-products"
+                  className="flex items-center gap-3 px-4 py-2 text-sm text-primary-800 hover:bg-primary-50 transition-colors"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <BoxIcon className="w-4 h-4" />
+                  Productos
+                </Link>
+                <Link
+                  href="/about"
+                  className="flex items-center gap-3 px-4 py-2 text-sm text-primary-800 hover:bg-primary-50 transition-colors"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Nosotros
+                </Link>
+                <Link
+                  href="/contact"
+                  className="flex items-center gap-3 px-4 py-2 text-sm text-primary-800 hover:bg-primary-50 transition-colors"
+                  onClick={() => setShowMobileMenu(false)}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  Contacto
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Panel de vendedor - si es vendedor */}
+          {isSeller && (
             <button
               onClick={() => router.push('/seller')}
-              className="text-xs border border-primary-600 text-primary-600 px-4 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
+              className="text-xs border border-primary-600 text-primary-600 px-3 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
             >
-              Panel Vendedor
+              Panel
             </button>
-          }
-          {
-            user
-              ? <>
-                  <UserButton>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Inicio"
-                        labelIcon={<HomeIcon />}
-                        onClick={() => router.push('/')}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Productos"
-                        labelIcon={<BoxIcon />}
-                        onClick={() => router.push('/all-products')}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Buscar"
-                        labelIcon={
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                          </svg>
-                        }
-                        onClick={() => setShowSearchModal(true)}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Nosotros"
-                        labelIcon={<HomeIcon />}
-                        onClick={() => router.push('/about')}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Contacto"
-                        labelIcon={<CartIcon />}
-                        onClick={() => router.push('/contact')}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Carrito"
-                        labelIcon={<CartIcon />}
-                        onClick={() => router.push('/cart')}
-                      />
-                    </UserButton.MenuItems>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Mis Pedidos"
-                        labelIcon={<BagIcon />}
-                        onClick={() => router.push('/my-orders')}
-                      />
-                    </UserButton.MenuItems>
-                  </UserButton>
-                </>
-              : <button
-                  onClick={openSignIn}
-                  className="flex items-center gap-2 hover:text-primary-600 transition-colors font-medium"
-                >
-                  <Image src={assets.user_icon} alt="usuario" />
-                  Cuenta
-                </button>
-          }
+          )}
+
+          {/* UserButton - solo con opciones específicas del usuario */}
+          {user ? (
+            <UserButton>
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label="Mis Pedidos"
+                  labelIcon={<BagIcon />}
+                  onClick={() => router.push('/my-orders')}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
+          ) : (
+            <button
+              onClick={openSignIn}
+              className="flex items-center gap-1 hover:text-primary-600 transition-colors font-medium text-sm"
+            >
+              <Image src={assets.user_icon} alt="usuario" width={20} height={20} />
+              Cuenta
+            </button>
+          )}
         </div>
       </nav>
 
@@ -210,7 +261,10 @@ const Navbar = () => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Buscar Productos</h2>
               <button
-                onClick={() => setShowSearchModal(false)}
+                onClick={() => {
+                  setShowSearchModal(false)
+                  setShowMobileMenu(false)
+                }}
                 className="text-gray-500 hover:text-gray-700"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

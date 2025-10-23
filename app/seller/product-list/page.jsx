@@ -17,7 +17,11 @@ const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
     'Smartphone',
     'Laptop',
     'Camera',
-    'Accessories'
+    'Accessories',
+    'Tablet',
+    'Console',
+    'Gaming',
+    'Home'
   ]
 
   const sortOptions = [
