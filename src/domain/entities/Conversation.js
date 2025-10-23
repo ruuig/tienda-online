@@ -1,15 +1,43 @@
 // Entidad de dominio Conversation (no depende de infraestructura)
 export class Conversation {
-  constructor(id, userId, title, status, priority, assignedTo, tags, metadata, lastActivity, createdAt, updatedAt) {
+  constructor(
+    id,
+    userId,
+    vendorId,
+    title,
+    status,
+    priority,
+    assignedTo,
+    tags,
+    metadata,
+    sessionId,
+    messageCount,
+    isPersisted,
+    startedAt,
+    endedAt,
+    lastActivity,
+    lastMessagePreview,
+    lastMessageSender,
+    createdAt,
+    updatedAt
+  ) {
     this.id = id;
     this.userId = userId;
+    this.vendorId = vendorId;
     this.title = title;
     this.status = status; // active, closed, escalated
     this.priority = priority; // low, medium, high
     this.assignedTo = assignedTo; // ID del admin asignado
     this.tags = tags || [];
     this.metadata = metadata || {};
+    this.sessionId = sessionId || null;
+    this.messageCount = messageCount || 0;
+    this.isPersisted = !!isPersisted;
+    this.startedAt = startedAt;
+    this.endedAt = endedAt;
     this.lastActivity = lastActivity;
+    this.lastMessagePreview = lastMessagePreview || '';
+    this.lastMessageSender = lastMessageSender || null;
     this.createdAt = createdAt;
     this.updatedAt = updatedAt;
   }

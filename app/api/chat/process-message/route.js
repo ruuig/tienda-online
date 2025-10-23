@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server';
 import { getAuth } from '@clerk/nextjs/server';
 import { ChatService } from '@/src/infrastructure/openai/chatService';
 import { productContextService } from '@/src/services/productContextService';
+import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
+
+const DEFAULT_VENDOR_ID = process.env.DEFAULT_VENDOR_ID || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor';
 
 // POST /api/chat/process-message - Procesar mensaje con IA
 export async function POST(request) {
@@ -20,7 +23,7 @@ export async function POST(request) {
     const body = await request.json();
     console.log('Datos recibidos:', body);
 
-    const { conversationId, message, userInfo } = body;
+    const { conversationId, message, userInfo, vendorId: vendorIdFromBody, sessionId } = body;
 
     if (!conversationId || !message) {
       console.log('ERROR: Datos faltantes', { conversationId, message: !!message });
@@ -29,6 +32,8 @@ export async function POST(request) {
         message: 'Faltan datos requeridos'
       }, { status: 400 });
     }
+
+    const resolvedVendorId = vendorIdFromBody || user?.publicMetadata?.vendorId || DEFAULT_VENDOR_ID;
 
     // Obtener clave de OpenAI desde variables de entorno
     const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -64,6 +69,7 @@ export async function POST(request) {
 
     // Crear servicio de chat
     const chatService = new ChatService(openaiApiKey);
+    const persistenceService = new ConversationPersistenceService();
 
     // Procesar mensaje con IA (usar usuario autenticado si existe, sino usuario por defecto)
     const userContext = user ? {
@@ -78,7 +84,27 @@ export async function POST(request) {
       ...userInfo
     };
 
-    const result = await chatService.processUserMessage(conversationId, message, {
+    const metadataFromRequest = {
+      userAgent: request.headers.get('user-agent'),
+      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('cf-connecting-ip') || null,
+      referrer: request.headers.get('referer') || request.headers.get('referrer') || null
+    };
+
+    const userMessageResult = await persistenceService.logMessage({
+      conversationId,
+      vendorId: resolvedVendorId,
+      userId: userContext.id,
+      sender: 'user',
+      content: message,
+      type: 'text',
+      conversationMetadata: metadataFromRequest,
+      sessionId,
+      title: body?.title
+    });
+
+    const persistedConversationId = userMessageResult.conversation?._id || conversationId;
+
+    const result = await chatService.processUserMessage(persistedConversationId, message, {
       userInfo: userContext,
       ...productContext
     });
@@ -89,14 +115,36 @@ export async function POST(request) {
       console.log('ERROR: ChatService falló', result.error);
       return NextResponse.json({
         success: false,
-        message: result.error || 'Error procesando mensaje'
+        message: result.error || 'Error procesando mensaje',
+        userMessage: userMessageResult.message,
+        conversation: userMessageResult.conversation
       }, { status: 500 });
+    }
+
+    let persistedBotMessage = null;
+
+    if (result.message) {
+      const persistenceResponse = await persistenceService.logMessage({
+        conversationId: persistedConversationId,
+        vendorId: resolvedVendorId,
+        userId: userContext.id,
+        sender: 'bot',
+        content: result.message.content,
+        type: result.message.type || 'text',
+        messageMetadata: result.message.metadata || {},
+        conversationMetadata: metadataFromRequest,
+        sessionId
+      });
+
+      persistedBotMessage = persistenceResponse.message;
     }
 
     console.log('Procesamiento exitoso, devolviendo respuesta');
     return NextResponse.json({
       success: true,
-      message: result.message,
+      message: persistedBotMessage || result.message,
+      userMessage: userMessageResult.message,
+      conversation: userMessageResult.conversation,
       intent: result.intent,
       sources: result.sources || [],
       processingTime: result.processingTime,

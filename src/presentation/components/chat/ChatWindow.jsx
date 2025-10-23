@@ -21,6 +21,9 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showEndChatModal, setShowEndChatModal] = useState(false);
   const [showFAQ, setShowFAQ] = useState(true);
+  const vendorId = useMemo(() => (
+    user?.publicMetadata?.vendorId || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor'
+  ), [user]);
 
   // Preguntas frecuentes predefinidas - actualizadas dinámicamente con productos
   const getFrequentQuestions = useMemo(() => {
@@ -227,16 +230,17 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
     setIsProcessing(true);
 
     // Crear mensaje del usuario localmente primero
+    const tempMessageId = `temp-${Date.now()}`;
     const userMessage = {
-      _id: `msg-${Date.now()}`,
+      _id: tempMessageId,
       conversationId,
       content: messageToSend,
       sender: 'user',
       type: 'text',
       createdAt: new Date().toISOString(),
+      status: 'pending'
     };
 
-    // Agregar mensaje del usuario inmediatamente
     setMessages(prev => [...prev, userMessage]);
     const messageContent = messageToSend;
     setInputValue('');
@@ -268,7 +272,8 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
               id: user?.id,
               name: user?.name,
               email: user?.email
-            }
+            },
+            vendorId
           })
         });
 
@@ -276,7 +281,16 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
         console.log('Respuesta de API:', data);
 
         if (response.ok && data.success) {
-          // Agregar respuesta del bot
+          if (data.userMessage) {
+            setMessages(prev => prev.map(msg => (
+              msg._id === tempMessageId ? data.userMessage : msg
+            )));
+          } else {
+            setMessages(prev => prev.map(msg => (
+              msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
+            )));
+          }
+
           if (data.message && data.message.sender === 'bot') {
             setMessages(prev => [...prev, data.message]);
 
@@ -287,6 +301,9 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
           }
         } else {
           console.error('Error en API:', data);
+          setMessages(prev => prev.map(msg => (
+            msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
+          )));
           const errorMessage = {
             _id: `error-${Date.now()}`,
             conversationId,
@@ -316,6 +333,9 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
       }
     } catch (error) {
       console.error('Error enviando mensaje:', error);
+      setMessages(prev => prev.map(msg => (
+        msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
+      )));
       const errorMessage = {
         _id: `error-${Date.now()}`,
         conversationId,

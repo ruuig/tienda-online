@@ -2,8 +2,9 @@
 import { Server as SocketIOServer } from 'socket.io';
 import Redis from 'ioredis';
 import connectDB from '@/src/infrastructure/database/db.js';
-import { Conversation, Message } from '@/src/infrastructure/database/models/index.js';
+import { Conversation } from '@/src/infrastructure/database/models/index.js';
 import { createChatService } from '@/src/infrastructure/openai/chatService.js';
+import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 
 export class AdvancedChatWebSocketServer {
   constructor(server) {
@@ -27,6 +28,7 @@ export class AdvancedChatWebSocketServer {
 
     this.chatService = createChatService(process.env.OPENAI_API_KEY);
     this.connectedClients = new Map(); // socketId -> { userId, vendorId, conversationId }
+    this.persistenceService = new ConversationPersistenceService();
 
     this.setupEventHandlers();
     this.startCleanupInterval();
@@ -117,21 +119,22 @@ export class AdvancedChatWebSocketServer {
     // Inicializar servicio para el vendedor
     await this.chatService.initializeForVendor(vendorId);
 
-    // Crear nueva conversación en MongoDB
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const conversation = await Conversation.create({
-      userId: userId || 'anonymous',
+    const conversationDoc = await this.persistenceService.ensureConversation({
+      conversationId: null,
       vendorId,
+      userId: userId || 'anonymous',
       sessionId,
-      status: 'active',
-      startedAt: new Date(),
-      metadata: {
+      title: `Chat con ${userId || 'visitante'}`,
+      conversationMetadata: {
         userAgent,
         ipAddress,
-        socketId: socket.id
+        socketId: socket.id,
+        sessionId
       }
     });
+    const conversation = conversationDoc;
 
     // Guardar información del cliente conectado
     this.connectedClients.set(socket.id, {
@@ -194,16 +197,16 @@ export class AdvancedChatWebSocketServer {
 
     try {
       // Guardar mensaje del usuario en MongoDB
-      await Message.create({
+      await this.persistenceService.logMessage({
         conversationId,
-        role: 'user',
+        vendorId,
+        userId: clientInfo.userId,
+        sender: 'user',
         content: content.trim(),
-        createdAt: new Date()
-      });
-
-      // Actualizar actividad de conversación
-      await Conversation.findByIdAndUpdate(conversationId, {
-        lastActivity: new Date()
+        type: 'text',
+        conversationMetadata: {
+          socketId: socket.id
+        }
       });
 
       // Actualizar contexto en Redis (últimos 15 mensajes)
@@ -224,23 +227,31 @@ export class AdvancedChatWebSocketServer {
       const result = await this.chatService.processUserMessage(conversationId, content.trim(), context);
 
       if (result.success) {
-        // Actualizar contexto en Redis con respuesta del bot
-        await this.updateRedisContext(conversationId, {
-          role: 'assistant',
+        const { message: savedBotMessage } = await this.persistenceService.logMessage({
+          conversationId,
+          vendorId,
+          userId: clientInfo.userId,
+          sender: 'bot',
           content: result.message.content,
-          timestamp: new Date(),
-          metadata: result.message.metadata
+          type: result.message.type || 'text',
+          messageMetadata: result.message.metadata || {}
         });
 
-        // Enviar respuesta al usuario
+        await this.updateRedisContext(conversationId, {
+          role: 'assistant',
+          content: savedBotMessage.content,
+          timestamp: new Date(savedBotMessage.createdAt),
+          metadata: savedBotMessage.metadata
+        });
+
         socket.emit('message', {
           role: 'assistant',
-          content: result.message.content,
+          content: savedBotMessage.content,
           conversationId,
-          metadata: result.message.metadata,
+          metadata: savedBotMessage.metadata,
           sources: result.sources,
           processingTime: result.processingTime,
-          timestamp: new Date().toISOString()
+          timestamp: savedBotMessage.createdAt
         });
 
         console.log(`✅ Respuesta enviada - Conversation: ${conversationId}, Processing: ${result.processingTime}ms`);
