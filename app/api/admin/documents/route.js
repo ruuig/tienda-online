@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import fs from 'fs';
+import path from 'path';
 
 export async function POST(request) {
   try {
@@ -83,16 +85,16 @@ export async function POST(request) {
     let documentsIndex = [];
 
     if (existsSync(documentsIndexPath)) {
-      const indexData = await import('fs').then(fs => fs.readFileSync(documentsIndexPath, 'utf8'));
+      const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
       documentsIndex = JSON.parse(indexData);
     }
 
     documentsIndex.push(documentRecord);
 
-    await import('fs').then(fs => fs.writeFileSync(
+    fs.writeFileSync(
       documentsIndexPath,
       JSON.stringify(documentsIndex, null, 2)
-    ));
+    );
 
     console.log('✅ Documento PDF subido por seller:', {
       id: documentRecord.id,
@@ -138,7 +140,7 @@ export async function GET(request) {
       });
     }
 
-    const indexData = await import('fs').then(fs => fs.readFileSync(documentsIndexPath, 'utf8'));
+    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
     const documents = JSON.parse(indexData);
 
     // Calcular estadísticas
@@ -147,6 +149,21 @@ export async function GET(request) {
       totalSize: documents.reduce((sum, doc) => sum + (doc.size || 0), 0),
       activeDocuments: documents.filter(doc => doc.isActive).length
     };
+
+    return NextResponse.json({
+      success: true,
+      documents,
+      stats
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo documentos:', error);
+    return NextResponse.json(
+      { success: false, message: 'Error interno del servidor' },
+      { status: 500 }
+    );
+  }
+}
 
 export async function DELETE(request) {
   try {
@@ -168,9 +185,6 @@ export async function DELETE(request) {
         { status: 400 }
       );
     }
-
-    const fs = await import('fs');
-    const path = await import('path');
 
     const documentsDir = join(process.cwd(), 'documents');
     const documentsIndexPath = join(documentsDir, 'index.json');
@@ -246,9 +260,6 @@ export async function PUT(request) {
         { status: 400 }
       );
     }
-
-    const fs = await import('fs');
-    const path = await import('path');
 
     const documentsDir = join(process.cwd(), 'documents');
     const documentsIndexPath = join(documentsDir, 'index.json');

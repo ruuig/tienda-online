@@ -10,6 +10,9 @@ const documentSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  contentText: {
+    type: String // Texto extraído para RAG
+  },
   type: {
     type: String,
     enum: ['faq', 'manual', 'policy', 'guide', 'other'],
@@ -27,13 +30,19 @@ const documentSchema = new mongoose.Schema({
     index: true
   }],
   fileName: {
-    type: String // Nombre del archivo original si se subió
+    type: String, // Nombre del archivo original si se subió
+    index: true
   },
   fileSize: {
     type: Number // Tamaño en bytes
   },
   mimeType: {
     type: String // Tipo MIME del archivo
+  },
+  vendorId: {
+    type: String,
+    required: true,
+    index: true
   },
   // Información para RAG
   chunks: [{
@@ -55,6 +64,9 @@ const documentSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  lastIndexed: {
+    type: Date
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -71,6 +83,7 @@ const documentSchema = new mongoose.Schema({
 documentSchema.index({ type: 1, category: 1 });
 documentSchema.index({ title: 'text', content: 'text', tags: 'text' });
 documentSchema.index({ isActive: 1 });
+documentSchema.index({ vendorId: 1, isActive: 1 });
 
 const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
 

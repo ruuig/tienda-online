@@ -49,6 +49,10 @@ export async function POST(request) {
 
     console.log('Procesando mensaje con ChatService...');
 
+    // Log conversationId para debugging
+    console.log('Conversation ID recibido:', conversationId);
+    console.log('Session ID recibido:', sessionId);
+
     // Obtener productos para contexto (si están disponibles)
     let productContext = {};
     try {
@@ -90,6 +94,7 @@ export async function POST(request) {
       referrer: request.headers.get('referer') || request.headers.get('referrer') || null
     };
 
+    console.log('Llamando a persistenceService.logMessage...');
     const userMessageResult = await persistenceService.logMessage({
       conversationId,
       vendorId: resolvedVendorId,
@@ -102,6 +107,7 @@ export async function POST(request) {
       title: body?.title
     });
 
+    console.log('Resultado de logMessage:', userMessageResult);
     const persistedConversationId = userMessageResult.conversation?._id || conversationId;
 
     const result = await chatService.processUserMessage(persistedConversationId, message, {

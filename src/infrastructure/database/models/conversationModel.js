@@ -94,6 +94,7 @@ conversationSchema.index({ status: 1, priority: 1 });
 conversationSchema.index({ assignedTo: 1 });
 conversationSchema.index({ vendorId: 1, status: 1, isPersisted: 1 });
 conversationSchema.index({ vendorId: 1, messageCount: -1 });
+conversationSchema.index({ sessionId: 1, vendorId: 1 }); // Índice compuesto para sessionId por vendor
 
 const Conversation = mongoose.models.Conversation || mongoose.model('Conversation', conversationSchema);
 

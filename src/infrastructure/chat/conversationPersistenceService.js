@@ -45,20 +45,44 @@ export class ConversationPersistenceService {
       throw new Error('vendorId is requerido para registrar una conversación');
     }
 
+    // Verificar si conversationId es un ObjectId válido o un string personalizado
+    let existing = null;
     if (conversationId) {
-      const existing = await Conversation.findById(conversationId);
-      if (existing) {
-        if (conversationMetadata && Object.keys(conversationMetadata).length > 0) {
-          existing.metadata = {
-            ...(existing.metadata || {}),
-            ...conversationMetadata
-          };
-          await existing.save();
+      // Intentar buscar por ObjectId primero
+      try {
+        existing = await Conversation.findById(conversationId);
+      } catch (error) {
+        // Si falla por ObjectId inválido, buscar por sessionId
+        console.log('ObjectId inválido, buscando por sessionId:', conversationId);
+        if (sessionId) {
+          existing = await Conversation.findOne({ sessionId, vendorId });
+        } else if (userId) {
+          existing = await Conversation.findOne({ userId, vendorId }).sort({ createdAt: -1 }).limit(1);
         }
-        return existing;
+      }
+    } else {
+      // Si no hay conversationId, buscar por sessionId o userId
+      if (sessionId) {
+        existing = await Conversation.findOne({ sessionId, vendorId });
+      } else if (userId) {
+        existing = await Conversation.findOne({ userId, vendorId }).sort({ createdAt: -1 }).limit(1);
       }
     }
 
+    if (existing) {
+      console.log('Conversación existente encontrada:', existing._id);
+      if (conversationMetadata && Object.keys(conversationMetadata).length > 0) {
+        existing.metadata = {
+          ...(existing.metadata || {}),
+          ...conversationMetadata
+        };
+        await existing.save();
+      }
+      return existing;
+    }
+
+    // Crear nueva conversación solo si no existe
+    console.log('Creando nueva conversación con sessionId:', sessionId);
     const now = new Date();
     const conversation = new Conversation({
       userId: userId || 'anonymous',
@@ -76,8 +100,22 @@ export class ConversationPersistenceService {
       updatedAt: now
     });
 
-    await conversation.save();
-    return conversation;
+    try {
+      await conversation.save();
+      console.log('Nueva conversación creada:', conversation._id);
+      return conversation;
+    } catch (error) {
+      // Si hay error de clave duplicada, buscar la conversación existente
+      if (error.code === 11000 && error.keyPattern && error.keyPattern.sessionId) {
+        console.log('Clave duplicada detectada, buscando conversación existente...');
+        const existingConversation = await Conversation.findOne({ sessionId, vendorId });
+        if (existingConversation) {
+          console.log('Conversación existente encontrada después de error:', existingConversation._id);
+          return existingConversation;
+        }
+      }
+      throw error;
+    }
   }
 
   async logMessage({
@@ -172,11 +210,33 @@ export class ConversationPersistenceService {
       updatedAt: now
     };
 
-    const conversation = await Conversation.findByIdAndUpdate(
-      conversationId,
-      updatePayload,
-      { new: true }
-    );
+    let conversation;
+
+    // Intentar actualizar por ObjectId primero
+    try {
+      conversation = await Conversation.findByIdAndUpdate(
+        conversationId,
+        updatePayload,
+        { new: true }
+      );
+    } catch (error) {
+      // Si falla por ObjectId inválido, buscar por sessionId
+      console.log('ObjectId inválido en update, buscando por sessionId');
+      if (updates.sessionId) {
+        conversation = await Conversation.findOneAndUpdate(
+          { sessionId: updates.sessionId },
+          updatePayload,
+          { new: true }
+        );
+      } else {
+        // Si conversationId no es ObjectId válido, usarlo como sessionId
+        conversation = await Conversation.findOneAndUpdate(
+          { sessionId: conversationId },
+          updatePayload,
+          { new: true }
+        );
+      }
+    }
 
     return normalizeDocument(conversation);
   }
