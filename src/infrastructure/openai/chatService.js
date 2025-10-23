@@ -2,6 +2,7 @@
 import { OpenAIClient } from './openaiClient.js';
 import { conversationalCartService } from '@/src/services/conversationalCartService.js';
 import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 
 const promptConfigService = createPromptConfigService();
 const OFF_TOPIC_TEMPLATE =
@@ -11,10 +12,14 @@ const OFF_TOPIC_TEMPLATE =
 
 // --- Memoria corta en proceso (por conversación) ---
 const convoMemory = new Map(); // conversationId -> { lastProducts: [], lastQuery: '', ts: number }
+const DEFAULT_HISTORY_LIMIT = 12;
 
 export class ChatService {
-  constructor(openaiApiKey) {
+  constructor(openaiApiKey, options = {}) {
     this.openaiClient = new OpenAIClient(openaiApiKey);
+    this.persistenceService =
+      options.conversationPersistenceService || new ConversationPersistenceService();
+    this.maxHistoryMessages = options.maxHistoryMessages || DEFAULT_HISTORY_LIMIT;
   }
 
   /**
@@ -171,10 +176,15 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
       }
 
       // 4) Generar respuesta normal con OpenAI
-      const messages = [
-        { role: 'system', content: aiSystemMessage },
-        { role: 'user', content: userMessage },
-      ];
+      const recentConversationMessages = await this.getRecentConversationMessages(
+        conversationId
+      );
+      const formattedHistory = this.formatHistoryForOpenAI(recentConversationMessages);
+      const messages = this.buildOpenAiMessageArray(
+        aiSystemMessage,
+        formattedHistory,
+        userMessage
+      );
 
       console.log('ChatService: Generando respuesta con OpenAI...');
       const response = await this.openaiClient.generateResponse(messages, {
@@ -261,6 +271,79 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
         processingTime: Date.now() - startTime,
       };
     }
+  }
+
+  async getRecentConversationMessages(conversationId) {
+    if (!conversationId || !this.persistenceService?.getRecentMessages) {
+      return [];
+    }
+
+    try {
+      const messages = await this.persistenceService.getRecentMessages(conversationId, {
+        limit: this.maxHistoryMessages,
+      });
+
+      return Array.isArray(messages) ? messages : [];
+    } catch (error) {
+      console.warn('ChatService: Error recuperando historial de conversación:', error?.message);
+      return [];
+    }
+  }
+
+  formatHistoryForOpenAI(messages = []) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return [];
+    }
+
+    return messages
+      .filter((message) =>
+        message && typeof message.content === 'string' && message.content.trim()
+      )
+      .map((message) => {
+        const sender = message.sender || message.role;
+        const content = message.content.trim();
+
+        if (sender === 'user') {
+          return { role: 'user', content };
+        }
+
+        if (sender === 'bot' || sender === 'assistant') {
+          return { role: 'assistant', content };
+        }
+
+        return null;
+      })
+      .filter(Boolean)
+      .slice(-this.maxHistoryMessages);
+  }
+
+  buildOpenAiMessageArray(systemMessage, historyMessages = [], userMessage) {
+    const messages = [];
+
+    if (systemMessage) {
+      messages.push({ role: 'system', content: systemMessage });
+    }
+
+    if (Array.isArray(historyMessages) && historyMessages.length > 0) {
+      messages.push(...historyMessages.slice(-this.maxHistoryMessages));
+    }
+
+    const normalizedUserMessage = typeof userMessage === 'string' ? userMessage.trim() : '';
+    if (normalizedUserMessage) {
+      const lastHistoryMessage = Array.isArray(historyMessages) && historyMessages.length
+        ? historyMessages[historyMessages.length - 1]
+        : null;
+
+      if (
+        !lastHistoryMessage ||
+        lastHistoryMessage.role !== 'user' ||
+        lastHistoryMessage.content !== normalizedUserMessage
+      ) {
+        messages.push({ role: 'user', content: normalizedUserMessage });
+      }
+    }
+
+    return messages;
   }
 
   /**
@@ -851,6 +934,6 @@ ${formattedSnippets}
 }
 
 // Factory function para crear servicio de chat
-export const createChatService = (openaiApiKey) => {
-  return new ChatService(openaiApiKey);
+export const createChatService = (openaiApiKey, options = {}) => {
+  return new ChatService(openaiApiKey, options);
 };
