@@ -1,14 +1,23 @@
 // API para procesar mensajes con OpenAI
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import { getAuth } from '@clerk/nextjs/server';
 import { ChatService } from '@/src/infrastructure/openai/chatService';
 import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositories.js';
 import { RAGService } from '@/src/infrastructure/rag/ragService.js';
-import { productContextService } from '@/src/services/productContextService';
 import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
+import Product from '@/src/infrastructure/database/models/productModel.js';
 
-const DEFAULT_VENDOR_ID = process.env.DEFAULT_VENDOR_ID || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor';
+const DEFAULT_VENDOR_ID =
+  process.env.DEFAULT_VENDOR_ID ||
+  process.env.NEXT_PUBLIC_VENDOR_ID ||
+  'default_vendor';
+
+// --- Función auxiliar para validar si un ID es ObjectId válido ---
+function isValidObjectId(id) {
+  return mongoose.Types.ObjectId.isValid(id);
+}
 
 // POST /api/chat/process-message - Procesar mensaje con IA
 export async function POST(request) {
@@ -18,108 +27,105 @@ export async function POST(request) {
     await connectDB();
     console.log('Base de datos conectada');
 
-    // Obtener usuario autenticado directamente desde Clerk (opcional para pruebas)
-    const { userId, user } = getAuth(request);
-    console.log('Usuario autenticado:', { userId, user: !!user });
+    const { userId, sessionId } = getAuth(request);
 
-    const body = await request.json();
-    console.log('Datos recibidos:', body);
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { success: false, message: 'Body inválido' },
+        { status: 400 }
+      );
+    }
 
-    const { conversationId, message, userInfo, vendorId: vendorIdFromBody, sessionId } = body;
+    const {
+      conversationId,
+      message,
+      userInfo,
+      vendorId: vendorIdFromBody,
+      sessionId: sessionIdFromBody,
+      title,
+    } = body || {};
 
     if (!conversationId || !message) {
-      console.log('ERROR: Datos faltantes', { conversationId, message: !!message });
-      return NextResponse.json({
-        success: false,
-        message: 'Faltan datos requeridos'
-      }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: 'Faltan datos requeridos' },
+        { status: 400 }
+      );
     }
 
-    const resolvedVendorId = vendorIdFromBody || user?.publicMetadata?.vendorId || DEFAULT_VENDOR_ID;
-
-    // Obtener clave de OpenAI desde variables de entorno
+    const resolvedVendorId = vendorIdFromBody || DEFAULT_VENDOR_ID;
     const openaiApiKey = process.env.OPENAI_API_KEY;
-    console.log('API Key de OpenAI:', !!openaiApiKey ? 'Configurada' : 'NO CONFIGURADA');
 
     if (!openaiApiKey) {
-      console.log('ERROR: API Key de OpenAI no configurada');
-      return NextResponse.json({
-        success: false,
-        message: 'Servicio de IA no disponible'
-      }, { status: 503 });
+      return NextResponse.json(
+        { success: false, message: 'Servicio de IA no disponible' },
+        { status: 503 }
+      );
     }
 
-    console.log('Procesando mensaje con ChatService...');
-
-    // Log conversationId para debugging
-    console.log('Conversation ID recibido:', conversationId);
-    console.log('Session ID recibido:', sessionId);
-
-    // Obtener productos para contexto (si están disponibles)
+    // --- 1) Cargar productos del proveedor ---
     let productContext = {};
     try {
-      // Intentar obtener productos del contexto global o base de datos
-      const products = await getProductsForContext();
-      if (products && products.length > 0) {
+      const products = await getProductsForContextFromDB(resolvedVendorId);
+      if (products?.length) {
         productContext = {
-          products: products,
-          productsSummary: generateProductsSummary(products)
+          products,
+          productsSummary: generateProductsSummary(products),
         };
-        console.log(`✅ Contexto de productos obtenido: ${products.length} productos`);
+        console.log(`✅ Contexto de productos cargado (${products.length} productos)`);
       } else {
         console.log('⚠️ No se encontraron productos para el contexto');
       }
-    } catch (error) {
-      console.warn('⚠️ No se pudo obtener contexto de productos:', error.message);
+    } catch (e) {
+      console.warn('⚠️ Error obteniendo productos:', e?.message);
     }
 
-    // Preparar contexto RAG del proveedor
+    // --- 2) Cargar documentos RAG ---
     const documentRepository = new DocumentRepositoryImpl();
     const ragService = new RAGService(documentRepository);
+
     let ragDocuments = [];
     let ragMatches = [];
-
     try {
-      ragDocuments = await documentRepository.findAll({
-        isActive: true,
-        vendorId: resolvedVendorId
-      });
+      const ragFilter = { isActive: true };
+      if (isValidObjectId(resolvedVendorId)) {
+        ragFilter.vendorId = resolvedVendorId;
+      }
+
+      ragDocuments = await documentRepository.findAll(ragFilter);
 
       if (ragDocuments.length > 0) {
         await ragService.buildIndex(ragDocuments);
         ragMatches = await ragService.search(message, 5);
-        console.log(`✅ Contexto RAG obtenido: ${ragMatches.length} coincidencias`);
+        console.log(`✅ RAG: ${ragMatches.length} coincidencias encontradas`);
       } else {
-        console.log('⚠️ No se encontraron documentos RAG activos para el proveedor');
+        console.log('⚠️ No hay documentos RAG activos para el proveedor');
       }
     } catch (ragError) {
-      console.warn('⚠️ No se pudo preparar el contexto RAG:', ragError.message);
+      console.warn('⚠️ No se pudo preparar RAG:', ragError?.message);
     }
 
-    // Crear servicio de chat
+    // --- 3) Inicializar servicios ---
     const chatService = new ChatService(openaiApiKey);
     const persistenceService = new ConversationPersistenceService();
 
-    // Procesar mensaje con IA (usar usuario autenticado si existe, sino usuario por defecto)
-    const userContext = user ? {
-      id: user.id,
-      name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-      email: user.primaryEmailAddress?.emailAddress,
-      ...userInfo
-    } : {
-      id: 'demo-user',
-      name: 'Usuario Demo',
-      email: 'demo@example.com',
-      ...userInfo
-    };
+    // --- 4) Contexto del usuario ---
+    const userContext = userId
+      ? { id: userId, name: 'Usuario', ...userInfo }
+      : { id: 'demo-user', name: 'Usuario Demo', email: 'demo@example.com', ...userInfo };
 
     const metadataFromRequest = {
       userAgent: request.headers.get('user-agent'),
-      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('cf-connecting-ip') || null,
-      referrer: request.headers.get('referer') || request.headers.get('referrer') || null
+      ipAddress:
+        request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+        request.headers.get('cf-connecting-ip') ||
+        null,
+      referrer: request.headers.get('referer') || request.headers.get('referrer') || null,
     };
 
-    console.log('Llamando a persistenceService.logMessage...');
+    // --- 5) Guardar mensaje del usuario ---
     const userMessageResult = await persistenceService.logMessage({
       conversationId,
       vendorId: resolvedVendorId,
@@ -128,38 +134,44 @@ export async function POST(request) {
       content: message,
       type: 'text',
       conversationMetadata: metadataFromRequest,
-      sessionId,
-      title: body?.title
+      sessionId: sessionIdFromBody || sessionId || null,
+      title,
     });
 
-    console.log('Resultado de logMessage:', userMessageResult);
-    const persistedConversationId = userMessageResult.conversation?._id || conversationId;
+    const persistedConversationId =
+      userMessageResult?.conversation?._id || conversationId;
 
-    const result = await chatService.processUserMessage(persistedConversationId, message, {
-      userInfo: userContext,
-      ...productContext,
-      ragContext: {
+    // --- 6) Generar respuesta con contexto (productos + RAG) ---
+    const result = await chatService.processUserMessage(
+      persistedConversationId,
+      message,
+      {
+        userInfo: userContext,
         vendorId: resolvedVendorId,
-        documents: ragDocuments,
-        matches: ragMatches,
-        service: ragService
+        ...productContext,
+        ragContext: {
+          vendorId: resolvedVendorId,
+          documents: ragDocuments,
+          matches: ragMatches,
+          service: ragService,
+        },
       }
-    });
+    );
 
-    console.log('Resultado del ChatService:', result);
-
-    if (!result.success) {
-      console.log('ERROR: ChatService falló', result.error);
-      return NextResponse.json({
-        success: false,
-        message: result.error || 'Error procesando mensaje',
-        userMessage: userMessageResult.message,
-        conversation: userMessageResult.conversation
-      }, { status: 500 });
+    if (!result?.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: result?.error || 'Error procesando mensaje',
+          userMessage: userMessageResult?.message,
+          conversation: userMessageResult?.conversation,
+        },
+        { status: 500 }
+      );
     }
 
+    // --- 7) Guardar respuesta del bot ---
     let persistedBotMessage = null;
-
     if (result.message) {
       const persistenceResponse = await persistenceService.logMessage({
         conversationId: persistedConversationId,
@@ -170,112 +182,105 @@ export async function POST(request) {
         type: result.message.type || 'text',
         messageMetadata: result.message.metadata || {},
         conversationMetadata: metadataFromRequest,
-        sessionId
+        sessionId: sessionIdFromBody || sessionId || null,
       });
-
-      persistedBotMessage = persistenceResponse.message;
+      persistedBotMessage = persistenceResponse?.message || result.message;
     }
 
-    console.log('Procesamiento exitoso, devolviendo respuesta');
+    // --- 8) Responder ---
     return NextResponse.json({
       success: true,
       message: persistedBotMessage || result.message,
-      userMessage: userMessageResult.message,
-      conversation: userMessageResult.conversation,
+      userMessage: userMessageResult?.message,
+      conversation: userMessageResult?.conversation,
       intent: result.intent,
       sources: result.sources || [],
       processingTime: result.processingTime,
       usedProductContext: !!productContext.products,
-      productsCount: productContext.products?.length || 0
+      productsCount: productContext.products?.length || 0,
     });
-
   } catch (error) {
     console.error('ERROR CRÍTICO en ruta API:', error);
-    return NextResponse.json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: 'Error interno del servidor', error: error.message },
+      { status: 500 }
+    );
   }
 }
 
 /**
- * Obtiene productos para contexto desde la base de datos o cache
- * @returns {Promise<Array>} - Array de productos
+ * Carga productos del proveedor directamente desde MongoDB (seguro ante vendorId inválido)
  */
-async function getProductsForContext() {
+async function getProductsForContextFromDB(vendorId) {
   try {
-    // Obtener productos desde la API de productos
-    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-    const response = await fetch(`${baseUrl}/api/product/list`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      // Usar cache de Next.js para evitar sobrecargar la API
-      next: { revalidate: 300 } // Cache por 5 minutos
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error obteniendo productos: ${response.status}`);
+    const filter = { status: 'active' };
+    if (isValidObjectId(vendorId)) {
+      filter.vendorId = vendorId;
+    } else {
+      console.warn(`⚠️ VendorId inválido (${vendorId}), cargando productos sin filtro`);
     }
 
-    const data = await response.json();
+    const projection = {
+      name: 1,
+      category: 1,
+      brand: 1,
+      offerPrice: 1,
+      price: 1,
+      description: 1,
+      stock: 1,
+      inStock: 1,
+      quantity: 1,
+    };
 
-    if (data.success && data.products) {
-      return data.products;
-    }
-
-    return [];
-  } catch (error) {
-    console.error('Error obteniendo productos para contexto:', error);
+    const products = await Product.find(filter, projection).lean();
+    return products || [];
+  } catch (err) {
+    console.error('Error obteniendo productos:', err);
     return [];
   }
 }
 
 /**
- * Genera un resumen de productos para el contexto
- * @param {Array} products - Array de productos
- * @returns {string} - Resumen formateado
+ * Genera resumen de productos
  */
 function generateProductsSummary(products) {
-  if (!products || products.length === 0) {
+  if (!Array.isArray(products) || products.length === 0) {
     return 'No hay productos disponibles en este momento.';
   }
 
-  const categories = [...new Set(products.map(p => p.category))];
+  const categories = [...new Set(products.map((p) => p.category))];
   const categoryNames = {
-    'smartphone': 'Smartphones',
-    'laptop': 'Laptops/Computadoras',
-    'earphone': 'Audífonos/Earphones',
-    'headphone': 'Headphones/Auriculares',
-    'watch': 'Relojes Inteligentes',
-    'camera': 'Cámaras',
-    'accessories': 'Accesorios',
-    'tablet': 'Tablets',
-    'console': 'Consolas',
-    'gaming': 'Juegos',
-    'home': 'hogar',
+    smartphone: 'Smartphones',
+    laptop: 'Laptops/Computadoras',
+    earphone: 'Audífonos/Earphones',
+    headphone: 'Headphones/Auriculares',
+    watch: 'Relojes Inteligentes',
+    camera: 'Cámaras',
+    accessories: 'Accesorios',
+    tablet: 'Tablets',
+    console: 'Consolas',
+    gaming: 'Juegos',
+    home: 'Hogar',
   };
 
-  const displayCategories = categories.map(cat => categoryNames[cat] || cat).join(', ');
-  const priceRange = {
-    min: Math.min(...products.map(p => p.offerPrice)),
-    max: Math.max(...products.map(p => p.offerPrice))
-  };
+  const displayCategories = categories.map((cat) => categoryNames[cat] || cat).join(', ');
+  const prices = products
+    .map((p) => Number(p.offerPrice ?? p.price) || 0)
+    .filter((n) => n > 0);
+  const priceRange =
+    prices.length > 0 ? { min: Math.min(...prices), max: Math.max(...prices) } : null;
 
-  let summary = `Tenemos ${products.length} productos disponibles en las siguientes categorías: ${displayCategories}.`;
-  summary += ` Los precios varían desde Q${priceRange.min} hasta Q${priceRange.max}.`;
+  let summary = `Tenemos ${products.length} productos en: ${displayCategories}.`;
+  if (priceRange) summary += ` Precios: Q${priceRange.min} a Q${priceRange.max}.`;
 
-  // Agregar algunos productos destacados
-  const featuredProducts = products.slice(0, 3);
-  if (featuredProducts.length > 0) {
-    summary += `\n\nAlgunos productos destacados:`;
-    featuredProducts.forEach((product, index) => {
-      const categoryName = categoryNames[product.category] || product.category;
-      summary += `\n• ${product.name} (${categoryName}) - Q${product.offerPrice}`;
+  const featured = products.slice(0, 3);
+  if (featured.length > 0) {
+    summary += `\n\nDestacados:`;
+    featured.forEach((p) => {
+      const cat = categoryNames[p.category] || p.category || 'General';
+      const price = p.offerPrice ?? p.price ?? '—';
+      summary += `\n• ${p.name} (${cat}) - Q${price}`;
     });
   }
-
   return summary;
 }
