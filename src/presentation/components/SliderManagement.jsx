@@ -42,6 +42,7 @@ const SliderManagement = () => {
     { name: 'sm_controller_image', label: 'Control SM' },
     { name: 'jbl_soundbox_image', label: 'JBL Soundbox' },
     { name: 'boy_with_laptop_image', label: 'Chico con Laptop' },
+    { name: 'gerardokeller', label: 'Gerardo Keller' },
   ]
 
   // Función para seleccionar imagen

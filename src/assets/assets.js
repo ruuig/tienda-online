@@ -41,6 +41,8 @@ import sm_controller_image from "./sm_controller_image.png";
 import jbl_soundbox_image from "./jbl_soundbox_image.png";
 import boy_with_laptop_image from "./boy_with_laptop_image.png";
 import boy_with_tablet_image from "./boy_with_tablet_image.png";
+import gerardokeller from "./gerardokeller.png";
+
 import checkmark from "./checkmark.png";
 import product_details_page_apple_earphone_image1 from "./product_details_page_apple_earphone_image1.png";
 import product_details_page_apple_earphone_image2 from "./product_details_page_apple_earphone_image2.png";
@@ -92,6 +94,7 @@ export const assets = {
   jbl_soundbox_image,
   boy_with_laptop_image,
   boy_with_tablet_image,
+  gerardokeller,
   product_details_page_apple_earphone_image1,
   product_details_page_apple_earphone_image2,
   product_details_page_apple_earphone_image3,

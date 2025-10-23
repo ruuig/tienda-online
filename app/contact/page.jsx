@@ -1,12 +1,10 @@
 'use client'
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import Navbar from '@/src/presentation/components/Navbar'
 import Footer from '@/src/presentation/components/Footer'
-import { assets } from '@/src/assets/assets'
-import Image from 'next/image'
 import toast from 'react-hot-toast'
-// ❌ quitamos: import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+
+// Nota: el CSS de Leaflet lo cargamos dentro del efecto para evitar SSR issues.
 
 const Contact = () => {
   const [formData, setFormData] = useState({
@@ -17,99 +15,77 @@ const Contact = () => {
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // 🔒 Refs para controlar el mapa y evitar doble inicialización
+  const mapContainerRef = useRef(null) // referencia al <div> del mapa
+  const mapRef = useRef(null)          // instancia de Leaflet guardada
+
   const handleInputChange = (e) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    setFormData(prev => ({ ...prev, [name]: value }))
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setIsSubmitting(true)
-
     try {
-      // Enviar al endpoint /api/contact
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       })
       const data = await res.json()
-
       if (!res.ok || !data.ok) throw new Error(data.error || 'Error al enviar')
-
       toast.success('Mensaje enviado correctamente. ¡Gracias por contactarnos!')
       setFormData({ name: '', email: '', subject: '', message: '' })
     } catch (error) {
-      toast.error('Error al enviar el mensaje: ' + error.message)
+      toast.error('Error al enviar el mensaje: ' + error.message, { icon: null })
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  // 🗺️ Inicializar Leaflet SOLO en cliente para evitar "window is not defined"
+  // 🗺️ Inicializar Leaflet SOLO una vez
   useEffect(() => {
-    let map
-    const init = async () => {
+    let cancelled = false
+
+    const initMap = async () => {
+      // Evita SSR y doble init
       if (typeof window === 'undefined') return
+      if (mapRef.current || !mapContainerRef.current) return
 
-      // Verificar si el contenedor ya tiene un mapa inicializado
-      const mapContainer = document.getElementById('map')
-      if (!mapContainer) {
-        console.log('🗺️ Contenedor del mapa no encontrado')
-        return
-      }
+      // Import dinámico (JS + CSS)
+      const L = (await import('leaflet')).default
+      await import('leaflet/dist/leaflet.css')
 
-      // Verificar si ya existe un mapa en este contenedor
-      if (window.mapInstance && window.mapInstance.getContainer() === mapContainer) {
-        console.log('🗺️ Mapa ya inicializado en el contenedor')
-        return
-      }
+      if (cancelled) return
 
-      try {
-        const { default: L } = await import('leaflet')
+      const lat = 14.796436
+      const lng = -89.546711
 
-        const lat = 14.796436
-        const lng = -89.546711
+      // Crea el mapa sobre el elemento referenciado
+      const map = L.map(mapContainerRef.current).setView([lat, lng], 16)
 
-        // Intentar crear el mapa
-        map = L.map('map', {
-          center: [lat, lng],
-          zoom: 16
-        })
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+      }).addTo(map)
 
-        // Si llega aquí, el mapa se creó correctamente
-        window.mapInstance = map
+      L.marker([lat, lng])
+        .addTo(map)
+        .bindPopup('<b>RJG Tech Shop</b><br>Ubicación: Parque El Calvario, Chiquimula.')
+        .openPopup()
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
-        }).addTo(map)
-
-        L.marker([lat, lng])
-          .addTo(map)
-          .bindPopup('<b>RJG Tech Shop</b><br>Ubicación: Parque El Calvario, Chiquimula.')
-          .openPopup()
-
-        console.log('🗺️ Mapa inicializado correctamente')
-      } catch (error) {
-        console.error('❌ Error inicializando mapa:', error)
-        if (error.message.includes('Map container is already initialized')) {
-          console.log('🗺️ El mapa ya estaba inicializado, omitiendo')
-        }
-      }
+      mapRef.current = map
     }
 
-    init()
+    initMap()
+
+    // Limpieza segura
     return () => {
-      if (map && map.remove) {
-        console.log('🗺️ Limpiando mapa')
-        map.remove()
-        if (window.mapInstance === map) {
-          delete window.mapInstance
-        }
+      cancelled = true
+      if (mapRef.current) {
+        mapRef.current.remove()
+        mapRef.current = null
       }
     }
   }, [])
@@ -212,9 +188,8 @@ const Contact = () => {
               </form>
             </div>
 
-            {/* Contact Information */}
+            {/* Contact Information + Mapa */}
             <div className="space-y-8">
-              {/* Contact Info Cards */}
               <div className="bg-white p-6 rounded-lg shadow-md border">
                 <h3 className="text-xl font-bold text-gray-800 mb-6">Información de Contacto</h3>
 
@@ -278,7 +253,11 @@ const Contact = () => {
               {/* Mapa Leaflet */}
               <div className="mt-8 relative z-0">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Ubicación</h3>
-                <div id="map" className="bg-gray-200 rounded-lg" style={{ height: 192 }}></div>
+                <div
+                  ref={mapContainerRef}
+                  className="bg-gray-200 rounded-lg"
+                  style={{ height: 192 }}
+                />
               </div>
             </div>
           </div>

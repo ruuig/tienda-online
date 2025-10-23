@@ -1,58 +1,63 @@
 "use client"
 import React, { useState, useEffect } from "react";
 import { assets, BagIcon, BoxIcon, CartIcon, HomeIcon } from "@/src/assets/assets";
-import Link from "next/link"
+import Link from "next/link";
 import { useAppContext } from "@/context/AppContext";
 import Image from "next/image";
-import { useClerk, UserButton } from "@clerk/nextjs";
+import { useClerk, UserButton, useUser, SignedIn, SignedOut } from "@clerk/nextjs";
 import { ChatButton } from "./chat";
 
 const Navbar = () => {
-  const { isSeller, router, user, getCartCount } = useAppContext();
-  const { openSignIn } = useClerk()
-  const [showSearchModal, setShowSearchModal] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [showMobileMenu, setShowMobileMenu] = useState(false)
+  const { /* isSeller (ya no lo usamos), */ router, getCartCount } = useAppContext();
+  const { openSignIn } = useClerk();
+  const { user: clerkUser, isLoaded } = useUser(); // 👈 estado en vivo de Clerk
+
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const cartCount = getCartCount();
 
+  // Rol en vivo desde Clerk (publicMetadata.role)
+  const role = clerkUser?.publicMetadata?.role;
+  const isSellerLive = isLoaded && (role === "seller" || role === "admin");
+
   const handleSearch = () => {
     if (searchQuery.trim()) {
-      // Redirigir a la tienda con el término de búsqueda
-      router.push(`/all-products?search=${encodeURIComponent(searchQuery.trim())}`)
-      setShowSearchModal(false)
-      setShowMobileMenu(false)
-      setSearchQuery('')
+      router.push(`/all-products?search=${encodeURIComponent(searchQuery.trim())}`);
+      setShowSearchModal(false);
+      setShowMobileMenu(false);
+      setSearchQuery("");
     }
-  }
+  };
 
   // Cerrar menú móvil cuando se hace clic fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (showMobileMenu && !event.target.closest('.mobile-menu-container')) {
-        setShowMobileMenu(false)
+      if (showMobileMenu && !event.target.closest(".mobile-menu-container")) {
+        setShowMobileMenu(false);
       }
-    }
+    };
 
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showMobileMenu])
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMobileMenu]);
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleSearch()
-    }
-  }
+    if (e.key === "Enter") handleSearch();
+  };
 
   return (
     <>
       <nav className="flex items-center justify-between px-6 md:px-16 lg:px-32 py-3 border-b border-primary-200 bg-white text-primary-800">
         <Image
           className="cursor-pointer w-28 md:w-32"
-          onClick={() => router.push('/')}
+          onClick={() => router.push("/")}
           src={assets.logo}
           alt="logo"
         />
+
+        {/* NAV DESKTOP */}
         <div className="flex items-center gap-4 lg:gap-8 max-md:hidden">
           <Link href="/" className="hover:text-primary-600 transition-colors font-medium">
             Inicio
@@ -67,76 +72,77 @@ const Navbar = () => {
             Contacto
           </Link>
 
-          {isSeller &&
-            <button
-              onClick={() => router.push('/seller')}
-              className="text-xs border border-primary-600 text-primary-600 px-4 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
-            >
-              Panel de Vendedor
-            </button>
-          }
+          {/* 👇 Botón de Panel dependiente del estado en vivo de Clerk */}
+          <SignedIn>
+            {isSellerLive && (
+              <button
+                onClick={() => router.push("/seller")}
+                className="text-xs border border-primary-600 text-primary-600 px-4 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
+              >
+                Panel de Vendedor
+              </button>
+            )}
+          </SignedIn>
         </div>
 
+        {/* ACCIONES DESKTOP */}
         <ul className="hidden md:flex items-center gap-6">
           <button
             onClick={() => setShowSearchModal(true)}
             className="w-5 h-5 cursor-pointer text-primary-600 hover:opacity-80 transition-opacity"
             aria-label="Buscar productos"
           >
-            <Image
-              src={assets.search_icon}
-              alt="buscar"
-              width={20}
-              height={20}
-            />
+            <Image src={assets.search_icon} alt="buscar" width={20} height={20} />
           </button>
-          {user && (
+
+          {/* Carrito solo cuando hay sesión (reacciona al instante) */}
+          <SignedIn>
             <button
-              onClick={() => router.push('/cart')}
+              onClick={() => router.push("/cart")}
               className="relative p-2 hover:bg-primary-50 rounded-full transition-colors"
               aria-label="Carrito de compras"
             >
               <CartIcon className="w-5 h-5 text-primary-800" />
-              {/* Contador de items en el carrito */}
               {cartCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-secondary-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
-                  {cartCount > 99 ? '99+' : cartCount}
+                  {cartCount > 99 ? "99+" : cartCount}
                 </span>
               )}
             </button>
-          )}
-          {
-            user
-              ? (
-                  <UserButton>
-                    <UserButton.MenuItems>
-                      <UserButton.Action
-                        label="Carrito"
-                        labelIcon={<CartIcon />}
-                        onClick={() => router.push('/cart')}
-                      />
-                      <UserButton.Action
-                        label="Mis Pedidos"
-                        labelIcon={<BagIcon />}
-                        onClick={() => router.push('/my-orders')}
-                      />
-                    </UserButton.MenuItems>
-                  </UserButton>
-                )
-              : (
-                  <button
-                    onClick={openSignIn}
-                    className="flex items-center gap-2 hover:text-primary-600 transition-colors font-medium"
-                  >
-                    <Image src={assets.user_icon} alt="usuario" />
-                    Cuenta
-                  </button>
-                )
-          }
+          </SignedIn>
+
+          {/* Usuario: menú si hay sesión, botón "Cuenta" si no */}
+          <SignedIn>
+            <UserButton>
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label="Carrito"
+                  labelIcon={<CartIcon />}
+                  onClick={() => router.push("/cart")}
+                />
+                <UserButton.Action
+                  label="Mis Pedidos"
+                  labelIcon={<BagIcon />}
+                  onClick={() => router.push("/my-orders")}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
+          </SignedIn>
+
+          <SignedOut>
+            <button
+              onClick={openSignIn}
+              className="flex items-center gap-2 hover:text-primary-600 transition-colors font-medium"
+            >
+              <Image src={assets.user_icon} alt="usuario" />
+              Cuenta
+            </button>
+          </SignedOut>
         </ul>
 
+        {/* NAV MÓVIL */}
         <div className="flex items-center md:hidden gap-2">
-          {/* Botón de búsqueda para móvil */}
+          {/* Buscar */}
           <button
             onClick={() => setShowSearchModal(true)}
             className="p-2 hover:bg-primary-50 rounded-full transition-colors"
@@ -147,23 +153,23 @@ const Navbar = () => {
             </svg>
           </button>
 
-          {/* Carrito - solo si hay usuario */}
-          {user && (
+          {/* Carrito (solo con sesión) */}
+          <SignedIn>
             <button
-              onClick={() => router.push('/cart')}
+              onClick={() => router.push("/cart")}
               className="relative p-2 hover:bg-primary-50 rounded-full transition-colors"
               aria-label="Carrito de compras"
             >
               <CartIcon className="w-5 h-5 text-primary-800" />
               {cartCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-secondary-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-medium">
-                  {cartCount > 99 ? '99+' : cartCount}
+                  {cartCount > 99 ? "99+" : cartCount}
                 </span>
               )}
             </button>
-          )}
+          </SignedIn>
 
-          {/* Menú hamburguesa para navegación principal */}
+          {/* Menú hamburguesa */}
           <div className="relative mobile-menu-container">
             <button
               onClick={() => setShowMobileMenu(!showMobileMenu)}
@@ -175,7 +181,6 @@ const Navbar = () => {
               </svg>
             </button>
 
-            {/* Menú desplegable */}
             {showMobileMenu && (
               <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-primary-200 py-2 z-50">
                 <Link
@@ -218,28 +223,32 @@ const Navbar = () => {
             )}
           </div>
 
-          {/* Panel de vendedor - si es vendedor */}
-          {isSeller && (
-            <button
-              onClick={() => router.push('/seller')}
-              className="text-xs border border-primary-600 text-primary-600 px-3 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
-            >
-              Panel
-            </button>
-          )}
+          {/* Panel de vendedor en móvil (solo si seller/admin y con sesión) */}
+          <SignedIn>
+            {isSellerLive && (
+              <button
+                onClick={() => router.push("/seller")}
+                className="text-xs border border-primary-600 text-primary-600 px-3 py-1.5 rounded-full hover:bg-primary-50 transition-colors font-medium"
+              >
+                Panel
+              </button>
+            )}
+          </SignedIn>
 
-          {/* UserButton - solo con opciones específicas del usuario */}
-          {user ? (
+          {/* User button / CTA de cuenta */}
+          <SignedIn>
             <UserButton>
               <UserButton.MenuItems>
                 <UserButton.Action
                   label="Mis Pedidos"
                   labelIcon={<BagIcon />}
-                  onClick={() => router.push('/my-orders')}
+                  onClick={() => router.push("/my-orders")}
                 />
               </UserButton.MenuItems>
             </UserButton>
-          ) : (
+          </SignedIn>
+
+          <SignedOut>
             <button
               onClick={openSignIn}
               className="flex items-center gap-1 hover:text-primary-600 transition-colors font-medium text-sm"
@@ -247,7 +256,7 @@ const Navbar = () => {
               <Image src={assets.user_icon} alt="usuario" width={20} height={20} />
               Cuenta
             </button>
-          )}
+          </SignedOut>
         </div>
       </nav>
 
@@ -261,10 +270,7 @@ const Navbar = () => {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Buscar Productos</h2>
               <button
-                onClick={() => {
-                  setShowSearchModal(false)
-                  setShowMobileMenu(false)
-                }}
+                onClick={() => { setShowSearchModal(false); setShowMobileMenu(false); }}
                 className="text-gray-500 hover:text-gray-700"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -306,7 +312,7 @@ const Navbar = () => {
         </div>
       )}
     </>
-  )
-}
+  );
+};
 
-export default Navbar
+export default Navbar;
