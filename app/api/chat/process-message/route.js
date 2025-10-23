@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import { getAuth } from '@clerk/nextjs/server';
 import { ChatService } from '@/src/infrastructure/openai/chatService';
-import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositories.js';
-import { RAGService } from '@/src/infrastructure/rag/ragService.js';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 import Product from '@/src/infrastructure/database/models/productModel.js';
 
@@ -83,22 +82,17 @@ export async function POST(request) {
     }
 
     // --- 2) Cargar documentos RAG ---
-    const documentRepository = new DocumentRepositoryImpl();
-    const ragService = new RAGService(documentRepository);
+    const ragService = getSharedRAGService();
 
     let ragDocuments = [];
     let ragMatches = [];
     try {
-      const ragFilter = { isActive: true };
-      if (isValidObjectId(resolvedVendorId)) {
-        ragFilter.vendorId = resolvedVendorId;
-      }
-
-      ragDocuments = await documentRepository.findAll(ragFilter);
+      const vendorKey = isValidObjectId(resolvedVendorId) ? resolvedVendorId : null;
+      await ragService.ensureIndexLoaded({ vendorId: vendorKey });
+      ragDocuments = ragService.getIndexedDocuments(vendorKey);
 
       if (ragDocuments.length > 0) {
-        await ragService.buildIndex(ragDocuments);
-        ragMatches = await ragService.search(message, 5);
+        ragMatches = await ragService.search(message, { vendorId: vendorKey, limit: 5 });
         console.log(`✅ RAG: ${ragMatches.length} coincidencias encontradas`);
       } else {
         console.log('⚠️ No hay documentos RAG activos para el proveedor');
