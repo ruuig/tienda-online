@@ -38,6 +38,9 @@ const documentSchema = new mongoose.Schema({
     type: String, // Nombre del archivo original si se subió
     index: true
   },
+  filePath: {
+    type: String,
+  },
   fileSize: {
     type: Number // Tamaño en bytes
   },
@@ -60,6 +63,8 @@ const documentSchema = new mongoose.Schema({
     uploadedBy: String, // ID del admin que subió el documento
     source: String, // URL externa o descripción del origen
     version: String,
+    description: String,
+    originalName: String,
     language: {
       type: String,
       default: 'es'

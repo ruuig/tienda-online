@@ -1,12 +1,13 @@
 // API del panel de vendedor para gestión completa del sistema de chat
 import connectDB from '../../../../src/infrastructure/database/db.js';
 import { Document, DocumentChunk, PromptConfig, Conversation, Message } from '../../../../src/infrastructure/database/models/index.js';
+import { DocumentRepositoryImpl } from '../../../../src/infrastructure/database/repositories.js';
 import { createRAGService } from '../../../../src/infrastructure/rag/ragService.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
-const ragService = createRAGService(process.env.OPENAI_API_KEY);
+const ragService = createRAGService(new DocumentRepositoryImpl());
 const isTestMode = process.env.VENDOR_DASHBOARD_TEST_MODE === 'true';
 let nextResponseClass;
 
@@ -265,40 +266,79 @@ export async function POST(request) {
       contentText = 'Contenido no extraíble automáticamente';
     }
 
+    const normalizedContent = contentText?.trim() || 'Contenido no extraíble automáticamente';
+    const normalizedDescription = description?.trim() || null;
+    const inferredTitle = normalizedDescription || file.name.replace(/\.[^/.]+$/, '').replace(/[\-_]+/g, ' ').trim() || 'Documento sin título';
+
+    const categoryTypeMap = {
+      products: 'guide',
+      orders: 'policy',
+      account: 'guide',
+      shipping: 'policy',
+      returns: 'policy',
+      technical: 'manual'
+    };
+
+    const documentType = categoryTypeMap[category] || 'other';
+
     // Crear documento en MongoDB
     const document = await Document.create({
       vendorId,
-      filename: fileName,
-      filePath,
-      contentText,
-      fileSize: file.size,
+      title: inferredTitle,
+      content: normalizedContent,
+      contentText: normalizedContent,
+      type: documentType,
       category,
+      fileName,
+      filePath,
+      fileSize: file.size,
+      mimeType: file.type,
       version: 1,
       isActive: true,
       uploadDate: new Date(),
       lastIndexed: null,
       metadata: {
         uploadedBy: auth.userId,
-        originalName: file.name,
-        mimeType: file.type,
-        description
+        source: 'vendor-dashboard',
+        description: normalizedDescription,
+        originalName: file.name
       }
     });
 
     // Dividir en chunks
-    const chunks = ragService.constructor.chunkText(contentText, 500, 50);
+    const rawChunks = ragService.splitIntoChunks(normalizedContent, 500);
 
     // Guardar chunks
-    const chunkDocuments = chunks.map(chunk => ({
-      documentId: document._id,
-      chunkText: chunk.content,
-      chunkIndex: chunk.chunkIndex,
-      tokenCount: chunk.tokenCount,
-      startIndex: chunk.startIndex,
-      endIndex: chunk.endIndex
-    }));
+    let searchStartIndex = 0;
+    const chunkDocuments = rawChunks
+      .map((chunkText, index) => {
+        const text = chunkText.trim();
+        if (!text) {
+          return null;
+        }
 
-    await DocumentChunk.insertMany(chunkDocuments);
+        let startIndex = normalizedContent.indexOf(text, searchStartIndex);
+        if (startIndex === -1) {
+          startIndex = searchStartIndex;
+        }
+
+        const endIndex = startIndex + text.length;
+        searchStartIndex = endIndex;
+
+        return {
+          documentId: document._id,
+          chunkText: text,
+          chunkIndex: index,
+          tokenCount: text.split(/\s+/).filter(Boolean).length,
+          startIndex,
+          endIndex
+        };
+      })
+      .filter(Boolean);
+
+    if (chunkDocuments.length > 0) {
+      await DocumentChunk.insertMany(chunkDocuments);
+    }
 
     console.log(`✅ Documento subido por vendedor ${vendorId}: ${fileName}`);
 
@@ -307,10 +347,10 @@ export async function POST(request) {
       message: 'Documento subido exitosamente',
       document: {
         id: document._id,
-        filename: document.filename,
+        filename: document.fileName,
         category: document.category,
         fileSize: document.fileSize,
-        chunksCount: chunks.length,
+        chunksCount: chunkDocuments.length,
         isIndexed: false
       }
     });
@@ -456,7 +496,7 @@ async function getDocumentsData(vendorId, searchParams) {
       .sort({ uploadDate: -1 })
       .skip(skip)
       .limit(limit)
-      .select('filename fileSize category version isActive uploadDate lastIndexed metadata'),
+      .select('fileName fileSize category version isActive uploadDate lastIndexed metadata'),
 
     Document.countDocuments(filter)
   ]);
@@ -465,7 +505,7 @@ async function getDocumentsData(vendorId, searchParams) {
     success: true,
     documents: documents.map(doc => ({
       id: doc._id,
-      filename: doc.filename,
+      filename: doc.fileName,
       fileSize: doc.fileSize,
       category: doc.category,
       version: doc.version,
