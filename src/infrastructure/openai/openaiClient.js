@@ -1,5 +1,11 @@
 // Cliente para integración con OpenAI GPT-4
 import OpenAI from 'openai';
+import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+
+const promptConfigService = createPromptConfigService();
+const OFF_TOPIC_TEMPLATE = promptConfigService.getPrompt('offTopicResponse')?.content ||
+  '¡Hola! 😊 Soy un asistente especializado únicamente en productos tecnológicos y compras en nuestra tienda online. ' +
+  'Para preguntas sobre {TOPIC}, te recomiendo consultar fuentes especializadas. ¿Te puedo ayudar con smartphones, laptops, audífonos u otros productos electrónicos? 🛒';
 
 export class OpenAIClient {
   constructor(apiKey) {
@@ -85,6 +91,21 @@ export class OpenAIClient {
    * @returns {Object} - Mensaje del sistema
    */
   buildSystemMessage(context) {
+    const ragSnippets = Array.isArray(context?.ragSnippets) ? context.ragSnippets : [];
+    const ragSources = Array.isArray(context?.ragSources) ? context.ragSources : [];
+
+    const ragDetails = ragSnippets.length > 0
+      ? `\n\nDOCUMENTOS DISPONIBLES PARA SOPORTE:\n${ragSnippets.map(snippet => `[#${snippet.index}] ${snippet.title}${snippet.source ? ` (Fuente: ${snippet.source})` : ''}\n${snippet.excerpt}`).join('\n\n')}`
+      : '';
+
+    const ragGuidelines = ragSnippets.length > 0
+      ? `\n\nGUÍA DE CITAS:\n- Usa los fragmentos solo si son relevantes para la consulta.\n- Cita la fuente utilizando el identificador [#n] correspondiente.\n- Si la información no está disponible, indícalo y ofrece escalar a un agente.`
+      : '';
+
+    const ragSourceSummary = ragSources.length > 0
+      ? `\n\nFUENTES REFERENCIALES:\n${ragSources.map(source => `[#${source.index}] ${source.title || 'Documento'}${source.source ? ` — ${source.source}` : ''}`).join('\n')}`
+      : '';
+
     const baseInstructions = `Eres un asistente de atención al cliente para una tienda online de tecnología.
 
 INSTRUCCIONES:
@@ -93,6 +114,7 @@ INSTRUCCIONES:
 - Si no sabes algo, di "Déjame consultar con un agente especializado"
 - Para consultas técnicas, proporciona información precisa basada en documentos disponibles
 - Nunca inventes información sobre productos o políticas
+- Si la consulta es sobre temas que NO están relacionados con la tienda ni la tecnología, recházala amablemente usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
 
 CONTEXTO DE LA TIENDA:
 - Somos especialistas en tecnología y productos electrónicos
@@ -101,7 +123,7 @@ CONTEXTO DE LA TIENDA:
 - Políticas de devolución: 30 días para productos sin usar
 
 ${context.products ? `PRODUCTOS DISPONIBLES: ${JSON.stringify(context.products.slice(0, 5))}` : ''}
-${context.documents ? `INFORMACIÓN DE SOPORTE: ${context.documents.map(d => d.title).join(', ')}` : ''}
+${context.documents ? `INFORMACIÓN DE SOPORTE: ${context.documents.map(d => d.title).join(', ')}` : ''}${ragDetails}${ragSourceSummary}${ragGuidelines}
 
 Responde siempre de manera útil y orientada al cliente.`;
 

@@ -1,6 +1,12 @@
 // Servicio de chat inteligente que integra OpenAI con el sistema de conversaciones
 import { OpenAIClient } from './openaiClient.js';
 import { conversationalCartService } from '@/src/services/conversationalCartService.js';
+import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+
+const promptConfigService = createPromptConfigService();
+const OFF_TOPIC_TEMPLATE = promptConfigService.getPrompt('offTopicResponse')?.content ||
+  '¡Hola! 😊 Soy un asistente especializado únicamente en productos tecnológicos y compras en nuestra tienda online. ' +
+  'Para preguntas sobre {TOPIC}, te recomiendo consultar fuentes especializadas. ¿Te puedo ayudar con smartphones, laptops, audífonos u otros productos electrónicos? 🛒';
 
 export class ChatService {
   constructor(openaiApiKey) {
@@ -19,13 +25,21 @@ export class ChatService {
     console.log('ChatService: Procesando mensaje:', { conversationId, userMessage: userMessage.substring(0, 100) });
 
     try {
+      const { ragContext: incomingRagContext, ...baseContext } = context || {};
+      const ragData = await this.prepareRagData(userMessage, incomingRagContext);
+      const aiContext = {
+        ...baseContext,
+        ragSnippets: ragData.snippets,
+        ragSources: ragData.sources
+      };
+
       console.log('ChatService: Clasificando intención...');
       // 1. Clasificar intención del mensaje
       const intent = await this.openaiClient.classifyIntent(userMessage);
       console.log('ChatService: Intención clasificada:', intent);
 
       // 2. Procesar intenciones de compra conversacional
-      const purchaseResult = await this.processPurchaseIntent(conversationId, userMessage, intent, context);
+      const purchaseResult = await this.processPurchaseIntent(conversationId, userMessage, intent, aiContext);
 
       // Si hay una respuesta específica para compra, usarla
       if (purchaseResult) {
@@ -44,7 +58,46 @@ export class ChatService {
             nextSteps: purchaseResult.nextSteps,
             products: purchaseResult.products || [], // Incluir productos si están disponibles
             processingTime: Date.now() - startTime,
-            model: 'gpt-4'
+            model: 'gpt-4',
+            usedProductContext: !!aiContext.products,
+            productsCount: aiContext.products?.length || 0,
+            rag: {
+              used: ragData.snippets.length > 0,
+              snippets: ragData.snippets,
+              sources: ragData.sources,
+              vendorId: incomingRagContext?.vendorId || null
+            }
+          },
+          createdAt: new Date()
+        };
+
+        return {
+          success: true,
+          message: botMessageData,
+          intent,
+          sources: ragData.sources,
+          processingTime: Date.now() - startTime
+        };
+      }
+
+      // 3. Si no es compra, generar respuesta normal con OpenAI
+      const systemMessage = this.getSystemMessage(aiContext);
+      // 3. Detectar consultas fuera de contexto de la tienda y responder con negativa alegre
+      if (this.shouldRefuseRequest(intent, userMessage, context)) {
+        console.log('ChatService: Consulta fuera de contexto detectada, enviando negativa.');
+
+        const refusalMessage = this.buildOffTopicMessage(userMessage);
+        const botMessageData = {
+          conversationId,
+          content: refusalMessage,
+          sender: 'bot',
+          type: 'text',
+          metadata: {
+            intent: intent.intent,
+            confidence: intent.confidence,
+            refusal: true,
+            processingTime: Date.now() - startTime,
+            model: 'refusal-policy'
           },
           createdAt: new Date()
         };
@@ -58,7 +111,7 @@ export class ChatService {
         };
       }
 
-      // 3. Si no es compra, generar respuesta normal con OpenAI
+      // 4. Si no es compra, generar respuesta normal con OpenAI
       const systemMessage = this.getSystemMessage(context);
       const messages = [
         { role: 'system', content: systemMessage },
@@ -67,13 +120,14 @@ export class ChatService {
 
       console.log('ChatService: Generando respuesta con OpenAI...');
       const response = await this.openaiClient.generateResponse(messages, {
+        ...aiContext,
         intent: intent.intent,
         confidence: intent.confidence
       });
 
       console.log('ChatService: Respuesta generada:', response.substring(0, 100));
 
-      // 4. Buscar productos relacionados si la consulta menciona productos
+      // 5. Buscar productos relacionados si la consulta menciona productos
       let relevantProducts = [];
       if (intent.intent === 'consulta_producto' || userMessage.toLowerCase().includes('producto')) {
         try {
@@ -84,7 +138,7 @@ export class ChatService {
         }
       }
 
-      // 5. Crear mensaje de respuesta del bot
+      // 6. Crear mensaje de respuesta del bot
       const botMessageData = {
         conversationId,
         content: response,
@@ -95,9 +149,15 @@ export class ChatService {
           confidence: intent.confidence,
           processingTime: Date.now() - startTime,
           model: 'gpt-4',
-          usedProductContext: !!context.products,
-          productsCount: context.products?.length || 0,
-          products: relevantProducts // Incluir productos relacionados
+          usedProductContext: !!aiContext.products,
+          productsCount: aiContext.products?.length || 0,
+          products: relevantProducts, // Incluir productos relacionados
+          rag: {
+            used: ragData.snippets.length > 0,
+            snippets: ragData.snippets,
+            sources: ragData.sources,
+            vendorId: incomingRagContext?.vendorId || null
+          }
         },
         createdAt: new Date()
       };
@@ -107,7 +167,7 @@ export class ChatService {
         success: true,
         message: botMessageData,
         intent,
-        sources: context.sources || [],
+        sources: ragData.sources,
         processingTime: Date.now() - startTime
       };
 
@@ -252,12 +312,91 @@ export class ChatService {
   }
 
   /**
+   * Determina si se debe rechazar la consulta por estar fuera del contexto de la tienda
+   * @param {Object} intent - Intención clasificada
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {boolean}
+   */
+  shouldRefuseRequest(intent, userMessage, context) {
+    if (!intent || intent.intent === 'otra') {
+      return true;
+    }
+
+    const normalizedMessage = typeof userMessage === 'string' ? userMessage.toLowerCase() : '';
+    const storeKeywords = [
+      'producto', 'productos', 'tienda', 'comprar', 'compra', 'carrito', 'pago', 'precio',
+      'envío', 'garantía', 'tecnología', 'smartphone', 'laptop', 'audífonos', 'pedido',
+      'factura', 'oferta', 'electrónica', 'soporte'
+    ];
+
+    const looksStoreRelated = storeKeywords.some(keyword => normalizedMessage.includes(keyword));
+
+    const hasRelevantContext = Array.isArray(context?.sources) && context.sources.length > 0;
+
+    return !looksStoreRelated && !hasRelevantContext && this.isGeneralConversationIntent(intent.intent);
+  }
+
+  /**
+   * Determina si la intención corresponde a conversación general
+   * @param {string} intentName - Nombre de la intención
+   * @returns {boolean}
+   */
+  isGeneralConversationIntent(intentName) {
+    const generalIntents = ['saludo', 'queja', 'consulta_general', 'otra'];
+    return generalIntents.includes(intentName);
+  }
+
+  /**
+   * Construye el mensaje de rechazo usando la plantilla oficial
+   * @param {string} userMessage - Mensaje original del usuario
+   * @returns {string}
+   */
+  buildOffTopicMessage(userMessage) {
+    const sanitizedTopic = this.extractTopic(userMessage);
+    return OFF_TOPIC_TEMPLATE.replace('{TOPIC}', sanitizedTopic);
+  }
+
+  /**
+   * Extrae un tema corto del mensaje del usuario
+   * @param {string} userMessage - Mensaje original del usuario
+   * @returns {string}
+   */
+  extractTopic(userMessage) {
+    if (!userMessage || typeof userMessage !== 'string') {
+      return 'ese tema';
+    }
+
+    const cleaned = userMessage
+      .replace(/\s+/g, ' ')
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+
+    if (!cleaned) {
+      return 'ese tema';
+    }
+
+    const firstSentence = cleaned.split(/[?.!]/)[0] || cleaned;
+    const topic = firstSentence.replace(/[^\p{L}\p{N}\s]/gu, '').trim();
+
+    if (!topic) {
+      return 'ese tema';
+    }
+
+    return topic.length > 60 ? `${topic.slice(0, 57)}...` : topic;
+  }
+
+  /**
    * Genera el mensaje del sistema para OpenAI con contexto dinámico
    * @param {Object} context - Contexto adicional (productos, etc.)
    * @returns {string} - Mensaje del sistema
    */
   getSystemMessage(context = {}) {
     let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
+
+RESTRICCIONES CRÍTICAS:
+- Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
+- Debes responder usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
 
 ESTOY AQUÍ PARA AYUDARTE:
 - Te ayudo a encontrar productos perfectos para ti
@@ -317,7 +456,221 @@ ${summary}
 ¡Recuerda ser siempre positivo y útil! 😄`;
     }
 
+    if (context.ragSnippets && context.ragSnippets.length > 0) {
+      const formattedSnippets = context.ragSnippets.map(snippet => {
+        const sourceLabel = snippet.source ? ` (Fuente: ${snippet.source})` : '';
+        return `[#${snippet.index}] ${snippet.title}${sourceLabel}\n${snippet.excerpt}`;
+      }).join('\n\n');
+
+      systemMessage += `
+
+📚 DOCUMENTOS DE REFERENCIA DISPONIBLES:
+${formattedSnippets}
+
+🔖 INSTRUCCIONES PARA USAR LAS FUENTES:
+- Utiliza la información de los documentos solo si es relevante para la pregunta del cliente.
+- Cuando cites información de un documento, menciona el identificador correspondiente con el formato [#n].
+- Si la respuesta no está en los documentos, indícalo y ofrece escalar a un agente humano.`;
+    }
+
     return systemMessage;
+  }
+
+  /**
+   * Prepara datos de soporte RAG para enriquecer la respuesta
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} ragContext - Contexto RAG recibido desde la ruta
+   * @returns {Promise<{matches: Array, snippets: Array, sources: Array}>}
+   */
+  async prepareRagData(userMessage, ragContext = {}) {
+    if (!ragContext) {
+      return { matches: [], snippets: [], sources: [] };
+    }
+
+    let matches = Array.isArray(ragContext.matches) ? [...ragContext.matches] : [];
+    const limit = ragContext.limit || 5;
+
+    const hasSearchService = ragContext.service && typeof ragContext.service.search === 'function';
+
+    if ((matches.length === 0) && hasSearchService) {
+      try {
+        if (ragContext.documents?.length && ragContext.service.vectorStore && ragContext.service.vectorStore.size === 0) {
+          await ragContext.service.buildIndex(ragContext.documents);
+        }
+        matches = await ragContext.service.search(userMessage, limit);
+      } catch (error) {
+        console.warn('ChatService: Error ejecutando búsqueda RAG de respaldo:', error.message);
+      }
+    }
+
+    const snippets = this.formatRagSnippets(matches, {
+      limit,
+      vendorId: ragContext.vendorId,
+      fallbackDocuments: ragContext.documents || [],
+      query: userMessage
+    });
+
+    const sources = this.extractRagSources(snippets);
+
+    return { matches, snippets, sources };
+  }
+
+  /**
+   * Convierte resultados RAG en fragmentos legibles
+   * @param {Array} matches - Resultados devueltos por el RAG
+   * @param {Object} options - Opciones de formato
+   * @returns {Array}
+   */
+  formatRagSnippets(matches, options = {}) {
+    const {
+      limit = 5,
+      vendorId = null,
+      fallbackDocuments = [],
+      query = ''
+    } = options;
+
+    let workingMatches = Array.isArray(matches) ? matches.filter(Boolean) : [];
+
+    if (workingMatches.length === 0 && fallbackDocuments.length > 0) {
+      const normalizedQuery = (query || '').toLowerCase();
+      const fallbackMatches = fallbackDocuments
+        .map(doc => {
+          const content = doc.content || '';
+          if (!content || !normalizedQuery) return null;
+          const index = content.toLowerCase().indexOf(normalizedQuery);
+          if (index === -1) return null;
+
+          const start = Math.max(0, index - 200);
+          const end = Math.min(content.length, index + normalizedQuery.length + 200);
+          const excerpt = content.substring(start, end);
+
+          return {
+            _id: doc._id || doc.id,
+            title: doc.title,
+            type: doc.type,
+            category: doc.category,
+            metadata: doc.metadata || {},
+            vendorId: doc.vendorId || vendorId,
+            relevanceScore: 0.15,
+            chunks: [
+              {
+                content: excerpt,
+                similarity: 0.15,
+                metadata: { startIndex: start, endIndex: end }
+              }
+            ]
+          };
+        })
+        .filter(Boolean);
+
+      workingMatches = fallbackMatches;
+    }
+
+    const snippets = [];
+
+    workingMatches.forEach((doc, docIndex) => {
+      const docChunks = Array.isArray(doc.chunks) && doc.chunks.length > 0
+        ? doc.chunks
+        : [{
+          content: doc.content,
+          similarity: doc.relevanceScore,
+          metadata: doc.metadata
+        }];
+
+      docChunks.forEach((chunk, chunkIndex) => {
+        const excerpt = this.truncateText(chunk?.content || '', 420);
+        if (!excerpt) {
+          return;
+        }
+
+        const similarity = typeof chunk.similarity === 'number'
+          ? chunk.similarity
+          : typeof doc.relevanceScore === 'number'
+            ? doc.relevanceScore
+            : 0;
+
+        snippets.push({
+          documentId: doc._id || doc.id || null,
+          title: doc.title || doc.metadata?.title || `Documento ${docIndex + 1}`,
+          excerpt,
+          similarity,
+          source: doc.metadata?.source || doc.source || doc.fileName || null,
+          metadata: {
+            type: doc.type || doc.metadata?.type || null,
+            category: doc.category || doc.metadata?.category || null,
+            vendorId: doc.vendorId || vendorId,
+            chunkRange: {
+              start: chunk.metadata?.startIndex ?? null,
+              end: chunk.metadata?.endIndex ?? null
+            },
+            fileName: doc.fileName || null
+          }
+        });
+      });
+    });
+
+    const ordered = snippets
+      .sort((a, b) => (b.similarity || 0) - (a.similarity || 0))
+      .slice(0, limit)
+      .map((snippet, index) => ({ ...snippet, index: index + 1 }));
+
+    return ordered;
+  }
+
+  /**
+   * Extrae información resumida de las fuentes RAG
+   * @param {Array} snippets - Fragmentos utilizados en la respuesta
+   * @returns {Array}
+   */
+  extractRagSources(snippets = []) {
+    if (!Array.isArray(snippets) || snippets.length === 0) {
+      return [];
+    }
+
+    const sourcesMap = new Map();
+
+    snippets.forEach(snippet => {
+      const key = snippet.documentId || `${snippet.title}-${snippet.source}`;
+
+      if (!sourcesMap.has(key)) {
+        sourcesMap.set(key, {
+          documentId: snippet.documentId,
+          title: snippet.title,
+          source: snippet.source,
+          similarity: snippet.similarity,
+          metadata: {
+            ...snippet.metadata,
+            snippetIndexes: [snippet.index]
+          }
+        });
+      } else {
+        const existing = sourcesMap.get(key);
+        existing.similarity = Math.max(existing.similarity || 0, snippet.similarity || 0);
+        if (existing.metadata?.snippetIndexes && !existing.metadata.snippetIndexes.includes(snippet.index)) {
+          existing.metadata.snippetIndexes.push(snippet.index);
+        }
+      }
+    });
+
+    return Array.from(sourcesMap.values()).map((source, index) => ({
+      ...source,
+      index: index + 1
+    }));
+  }
+
+  /**
+   * Recorta texto largo para mensajes de sistema
+   * @param {string} text - Texto original
+   * @param {number} length - Longitud máxima
+   * @returns {string}
+   */
+  truncateText(text, length = 420) {
+    if (!text) return '';
+    const trimmed = String(text).trim();
+    if (trimmed.length <= length) {
+      return trimmed;
+    }
+    return `${trimmed.substring(0, length).trim()}…`;
   }
 
   /**
