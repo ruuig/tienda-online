@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { sendSmtpMail } from "@/lib/mail/smtpClient";
 export const runtime = 'nodejs';
 
 export async function POST(req) {
@@ -14,16 +14,6 @@ export async function POST(req) {
       return new Response(JSON.stringify({ ok: false, error: "CONTACT_TO no configurado" }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-
     const textBody = `
 Nombre: ${name}
 Correo: ${email}
@@ -33,9 +23,9 @@ Mensaje:
 ${message}
     `;
 
-    const info = await transporter.sendMail({
-      from: `"${name}" <${process.env.SMTP_USER}>`,
-      to: toList.join(","),
+    const info = await sendSmtpMail({
+      fromName: name,
+      to: toList,
       subject: `[Soporte] ${subject}`,
       replyTo: `${name} <${email}>`,
       text: textBody,
