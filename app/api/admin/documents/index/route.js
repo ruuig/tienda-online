@@ -1,23 +1,17 @@
-// API para indexar documentos con RAG simplificado
+// API para indexar documentos con RAG persistente
 import { NextResponse } from 'next/server';
 import connectDB from '@/src/infrastructure/database/db.js';
-import fs from 'fs';
-import path from 'path';
-import { existsSync } from 'fs';
-import { join } from 'path';
-import { createSimpleRAGService } from '@/src/infrastructure/rag/simpleRagService.js';
+import { Document, DocumentChunk } from '@/src/infrastructure/database/models/index.js';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 
-const ragService = createSimpleRAGService(process.env.OPENAI_API_KEY);
+const ragService = getSharedRAGService();
 
 export async function POST(request) {
   try {
     await connectDB();
 
     const body = await request.json();
-    const { documentId } = body;
-
-    // TODO: Validar autenticación de vendedor
-    const vendorId = '507f1f77bcf86cd799439011'; // Temporal
+    const { documentId, vendorId: vendorIdParam } = body;
 
     if (!documentId) {
       return NextResponse.json(
@@ -26,22 +20,10 @@ export async function POST(request) {
       );
     }
 
-    // Buscar documento en el sistema de archivos (sincronizado con el sistema principal)
-    const documentsDir = join(process.cwd(), 'documents');
-    const documentsIndexPath = join(documentsDir, 'index.json');
-
-    if (!existsSync(documentsIndexPath)) {
-      return NextResponse.json(
-        { success: false, message: 'No se encontraron documentos' },
-        { status: 404 }
-      );
-    }
-
-    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
-    const documents = JSON.parse(indexData);
-
-    // Buscar el documento por ID
-    const document = documents.find(doc => doc.id === documentId && doc.isActive);
+    const document = await Document.findOne({
+      _id: documentId,
+      isActive: true,
+    });
 
     if (!document) {
       return NextResponse.json(
@@ -50,34 +32,107 @@ export async function POST(request) {
       );
     }
 
-    // Indexar documento con RAG simplificado
-    const result = await ragService.addDocument(
-      documentId,
-      vendorId,
-      document.content || document.description || ''
-    );
+    const resolvedVendorId = (
+      document.vendorId ||
+      vendorIdParam ||
+      ragService?.defaultVendorId ||
+      process.env.DEFAULT_VENDOR_ID ||
+      process.env.NEXT_PUBLIC_VENDOR_ID
+    )?.toString();
 
-    // Actualizar documento en el índice de archivos
-    const documentIndex = documents.findIndex(doc => doc.id === documentId);
-    if (documentIndex !== -1) {
-      documents[documentIndex].lastIndexed = new Date().toISOString();
-      fs.writeFileSync(documentsIndexPath, JSON.stringify(documents, null, 2));
+    if (!resolvedVendorId) {
+      return NextResponse.json(
+        { success: false, message: 'VendorId no disponible para el documento' },
+        { status: 400 }
+      );
     }
 
-    console.log('✅ Documento indexado en RAG:', {
+    if (vendorIdParam && document.vendorId?.toString() !== vendorIdParam) {
+      return NextResponse.json(
+        { success: false, message: 'No tienes permisos para indexar este documento' },
+        { status: 403 }
+      );
+    }
+
+    const plainDocument = typeof document.toObject === 'function'
+      ? document.toObject({ depopulate: true })
+      : document;
+
+    plainDocument.vendorId = resolvedVendorId;
+
+    const [indexedDocument] = await ragService.buildIndex([plainDocument], {
+      vendorId: resolvedVendorId,
+      replaceExisting: false,
+    });
+
+    if (!indexedDocument) {
+      return NextResponse.json(
+        { success: false, message: 'No se pudo indexar el documento' },
+        { status: 500 }
+      );
+    }
+
+    const indexedAt = indexedDocument.lastIndexed
+      ? new Date(indexedDocument.lastIndexed)
+      : new Date();
+
+    await Document.updateOne(
+      { _id: document._id },
+      { $set: { lastIndexed: indexedAt } }
+    );
+
+    const chunkDocuments = Array.isArray(indexedDocument.chunks)
+      ? indexedDocument.chunks
+          .map((chunk, index) => {
+            const chunkText = (chunk?.content || '').trim();
+            if (!chunkText) {
+              return null;
+            }
+
+            const startIndex = typeof chunk.startIndex === 'number'
+              ? chunk.startIndex
+              : index * (ragService?.options?.chunkSize || 500);
+            const endIndex = typeof chunk.endIndex === 'number'
+              ? chunk.endIndex
+              : startIndex + chunkText.length;
+
+            return {
+              documentId: document._id,
+              chunkText,
+              chunkIndex: index,
+              tokenCount: chunkText.split(/\s+/).filter(Boolean).length,
+              startIndex,
+              endIndex,
+              lastIndexed: indexedAt,
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    await DocumentChunk.deleteMany({ documentId: document._id });
+    if (chunkDocuments.length > 0) {
+      await DocumentChunk.insertMany(chunkDocuments);
+    }
+
+    const chunksIndexed = chunkDocuments.length;
+
+    console.log('✅ Documento indexado en RAG (persistente):', {
       documentId,
-      embeddingLength: result.embeddingLength,
-      timestamp: new Date().toISOString()
+      vendorId: resolvedVendorId,
+      chunksIndexed,
+      indexedAt: indexedAt.toISOString(),
     });
 
     return NextResponse.json({
       success: true,
       message: 'Documento indexado exitosamente en el sistema RAG',
       document: {
-        id: document.id,
+        id: document._id,
+        vendorId: resolvedVendorId,
+        title: document.title,
         filename: document.fileName,
-        embeddingLength: result.embeddingLength,
-        lastIndexed: new Date()
+        chunksIndexed,
+        lastIndexed: indexedAt,
       }
     });
 
@@ -97,8 +152,7 @@ export async function PUT(request) {
     const body = await request.json();
     const { vendorId: vendorIdParam } = body;
 
-    // TODO: Validar autenticación de vendedor
-    const vendorId = vendorIdParam || '507f1f77bcf86cd799439011'; // Temporal
+    const vendorId = vendorIdParam || ragService?.defaultVendorId || process.env.DEFAULT_VENDOR_ID || process.env.NEXT_PUBLIC_VENDOR_ID;
 
     if (!vendorId) {
       return NextResponse.json(
@@ -107,79 +161,25 @@ export async function PUT(request) {
       );
     }
 
-    // Re-indexar todos los documentos del vendedor desde el sistema de archivos
-    const documentsDir = join(process.cwd(), 'documents');
-    const documentsIndexPath = join(documentsDir, 'index.json');
+    const result = await ragService.rebuildIndex({ vendorId });
 
-    if (!existsSync(documentsIndexPath)) {
-      return NextResponse.json(
-        { success: false, message: 'No se encontraron documentos' },
-        { status: 404 }
-      );
-    }
-
-    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
-    const documents = JSON.parse(indexData);
-
-    // Filtrar documentos activos del vendor
-    const activeDocuments = documents.filter(doc => doc.isActive);
-
-    let successful = 0;
-    let failed = 0;
-    const results = [];
-
-    for (const doc of activeDocuments) {
-      try {
-        await ragService.addDocument(
-          doc.id,
-          vendorId,
-          doc.content || doc.description || ''
-        );
-        successful++;
-        results.push({ documentId: doc.id, success: true });
-      } catch (error) {
-        failed++;
-        results.push({ documentId: doc.id, success: false, error: error.message });
-      }
-    }
-
-    // Actualizar todos los documentos como indexados
-    const updatedDocuments = documents.map(doc => {
-      if (doc.isActive) {
-        return { ...doc, lastIndexed: new Date().toISOString() };
-      }
-      return doc;
-    });
-    fs.writeFileSync(documentsIndexPath, JSON.stringify(updatedDocuments, null, 2));
-
-    const success = failed === 0;
-    const result = {
-      success,
-      totalDocuments: activeDocuments.length,
-      successful,
-      failed,
-      results
-    };
-
-    console.log('✅ Re-indexación completada:', {
+    console.log('✅ Re-indexación completada (persistente):', {
       vendorId,
-      totalDocuments: result.totalDocuments,
-      successful: result.successful,
-      failed: result.failed,
-      timestamp: new Date().toISOString()
+      documentsIndexed: result.documentsIndexed,
+      chunksIndexed: result.chunksIndexed,
+      timestamp: new Date().toISOString(),
     });
 
     return NextResponse.json({
-      success: result.success,
-      message: result.success
-        ? 'Todos los documentos han sido re-indexados exitosamente'
-        : 'Algunos documentos no pudieron ser indexados',
+      success: true,
+      message: 'Índice reconstruido exitosamente',
       stats: {
-        totalDocuments: result.totalDocuments,
-        successful: result.successful,
-        failed: result.failed
+        totalDocuments: result.documentsIndexed,
+        successful: result.documentsIndexed,
+        failed: 0,
+        chunksIndexed: result.chunksIndexed,
       },
-      results: result.results
+      results: [],
     });
 
   } catch (error) {
