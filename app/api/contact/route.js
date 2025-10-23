@@ -1,4 +1,7 @@
 import nodemailer from "nodemailer";
+import connectDB from '@/config/db';
+import { TicketRepositoryImpl } from '@/src/infrastructure/database/repositories';
+
 export const runtime = 'nodejs';
 
 export async function POST(req) {
@@ -13,6 +16,33 @@ export async function POST(req) {
     if (!toList?.length) {
       return new Response(JSON.stringify({ ok: false, error: "CONTACT_TO no configurado" }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
+
+    await connectDB();
+    const ticketRepository = new TicketRepositoryImpl();
+
+    const ticket = await ticketRepository.create({
+      conversationId: null,
+      userId: email,
+      title: subject,
+      description: message,
+      category: 'other',
+      priority: 'medium',
+      status: 'open',
+      messages: [{
+        sender: 'customer',
+        senderName: name,
+        senderEmail: email,
+        content: message,
+        sentAt: new Date()
+      }],
+      metadata: {
+        source: 'contact_form',
+        channel: 'web',
+        senderName: name,
+        senderEmail: email,
+        subject
+      }
+    });
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
@@ -41,7 +71,7 @@ ${message}
       text: textBody,
     });
 
-    return new Response(JSON.stringify({ ok: true, id: info.messageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ ok: true, message: "Mensaje enviado correctamente", ticketId: ticket._id.toString(), emailId: info.messageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (err) {
     console.error("Error al enviar correo:", err);
     return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500, headers: { 'Content-Type': 'application/json' } });
