@@ -1,6 +1,12 @@
 // Servicio de chat inteligente que integra OpenAI con el sistema de conversaciones
 import { OpenAIClient } from './openaiClient.js';
 import { conversationalCartService } from '@/src/services/conversationalCartService.js';
+import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+
+const promptConfigService = createPromptConfigService();
+const OFF_TOPIC_TEMPLATE = promptConfigService.getPrompt('offTopicResponse')?.content ||
+  '¡Hola! 😊 Soy un asistente especializado únicamente en productos tecnológicos y compras en nuestra tienda online. ' +
+  'Para preguntas sobre {TOPIC}, te recomiendo consultar fuentes especializadas. ¿Te puedo ayudar con smartphones, laptops, audífonos u otros productos electrónicos? 🛒';
 
 export class ChatService {
   constructor(openaiApiKey) {
@@ -76,6 +82,37 @@ export class ChatService {
 
       // 3. Si no es compra, generar respuesta normal con OpenAI
       const systemMessage = this.getSystemMessage(aiContext);
+      // 3. Detectar consultas fuera de contexto de la tienda y responder con negativa alegre
+      if (this.shouldRefuseRequest(intent, userMessage, context)) {
+        console.log('ChatService: Consulta fuera de contexto detectada, enviando negativa.');
+
+        const refusalMessage = this.buildOffTopicMessage(userMessage);
+        const botMessageData = {
+          conversationId,
+          content: refusalMessage,
+          sender: 'bot',
+          type: 'text',
+          metadata: {
+            intent: intent.intent,
+            confidence: intent.confidence,
+            refusal: true,
+            processingTime: Date.now() - startTime,
+            model: 'refusal-policy'
+          },
+          createdAt: new Date()
+        };
+
+        return {
+          success: true,
+          message: botMessageData,
+          intent,
+          sources: context.sources || [],
+          processingTime: Date.now() - startTime
+        };
+      }
+
+      // 4. Si no es compra, generar respuesta normal con OpenAI
+      const systemMessage = this.getSystemMessage(context);
       const messages = [
         { role: 'system', content: systemMessage },
         { role: 'user', content: userMessage }
@@ -90,7 +127,7 @@ export class ChatService {
 
       console.log('ChatService: Respuesta generada:', response.substring(0, 100));
 
-      // 4. Buscar productos relacionados si la consulta menciona productos
+      // 5. Buscar productos relacionados si la consulta menciona productos
       let relevantProducts = [];
       if (intent.intent === 'consulta_producto' || userMessage.toLowerCase().includes('producto')) {
         try {
@@ -101,7 +138,7 @@ export class ChatService {
         }
       }
 
-      // 5. Crear mensaje de respuesta del bot
+      // 6. Crear mensaje de respuesta del bot
       const botMessageData = {
         conversationId,
         content: response,
@@ -275,12 +312,91 @@ export class ChatService {
   }
 
   /**
+   * Determina si se debe rechazar la consulta por estar fuera del contexto de la tienda
+   * @param {Object} intent - Intención clasificada
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {boolean}
+   */
+  shouldRefuseRequest(intent, userMessage, context) {
+    if (!intent || intent.intent === 'otra') {
+      return true;
+    }
+
+    const normalizedMessage = typeof userMessage === 'string' ? userMessage.toLowerCase() : '';
+    const storeKeywords = [
+      'producto', 'productos', 'tienda', 'comprar', 'compra', 'carrito', 'pago', 'precio',
+      'envío', 'garantía', 'tecnología', 'smartphone', 'laptop', 'audífonos', 'pedido',
+      'factura', 'oferta', 'electrónica', 'soporte'
+    ];
+
+    const looksStoreRelated = storeKeywords.some(keyword => normalizedMessage.includes(keyword));
+
+    const hasRelevantContext = Array.isArray(context?.sources) && context.sources.length > 0;
+
+    return !looksStoreRelated && !hasRelevantContext && this.isGeneralConversationIntent(intent.intent);
+  }
+
+  /**
+   * Determina si la intención corresponde a conversación general
+   * @param {string} intentName - Nombre de la intención
+   * @returns {boolean}
+   */
+  isGeneralConversationIntent(intentName) {
+    const generalIntents = ['saludo', 'queja', 'consulta_general', 'otra'];
+    return generalIntents.includes(intentName);
+  }
+
+  /**
+   * Construye el mensaje de rechazo usando la plantilla oficial
+   * @param {string} userMessage - Mensaje original del usuario
+   * @returns {string}
+   */
+  buildOffTopicMessage(userMessage) {
+    const sanitizedTopic = this.extractTopic(userMessage);
+    return OFF_TOPIC_TEMPLATE.replace('{TOPIC}', sanitizedTopic);
+  }
+
+  /**
+   * Extrae un tema corto del mensaje del usuario
+   * @param {string} userMessage - Mensaje original del usuario
+   * @returns {string}
+   */
+  extractTopic(userMessage) {
+    if (!userMessage || typeof userMessage !== 'string') {
+      return 'ese tema';
+    }
+
+    const cleaned = userMessage
+      .replace(/\s+/g, ' ')
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+
+    if (!cleaned) {
+      return 'ese tema';
+    }
+
+    const firstSentence = cleaned.split(/[?.!]/)[0] || cleaned;
+    const topic = firstSentence.replace(/[^\p{L}\p{N}\s]/gu, '').trim();
+
+    if (!topic) {
+      return 'ese tema';
+    }
+
+    return topic.length > 60 ? `${topic.slice(0, 57)}...` : topic;
+  }
+
+  /**
    * Genera el mensaje del sistema para OpenAI con contexto dinámico
    * @param {Object} context - Contexto adicional (productos, etc.)
    * @returns {string} - Mensaje del sistema
    */
   getSystemMessage(context = {}) {
     let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
+
+RESTRICCIONES CRÍTICAS:
+- Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
+- Debes responder usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
 
 ESTOY AQUÍ PARA AYUDARTE:
 - Te ayudo a encontrar productos perfectos para ti
