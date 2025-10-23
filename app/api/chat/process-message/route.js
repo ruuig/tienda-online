@@ -8,6 +8,7 @@ import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositori
 import { RAGService } from '@/src/infrastructure/rag/ragService.js';
 import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 import Product from '@/src/infrastructure/database/models/productModel.js';
+import { productContextService } from '@/src/services/productContextService.js';
 
 const DEFAULT_VENDOR_ID =
   process.env.DEFAULT_VENDOR_ID ||
@@ -68,15 +69,25 @@ export async function POST(request) {
     // --- 1) Cargar productos del proveedor ---
     let productContext = {};
     try {
-      const products = await getProductsForContextFromDB(resolvedVendorId);
+      const products = await searchProductsForMessage(message, resolvedVendorId, 8);
       if (products?.length) {
         productContext = {
           products,
           productsSummary: generateProductsSummary(products),
         };
+
+        try {
+          await productContextService.initialize(products);
+        } catch (serviceError) {
+          console.warn(
+            '⚠️ No se pudo inicializar el servicio de contexto de productos:',
+            serviceError?.message
+          );
+        }
+
         console.log(`✅ Contexto de productos cargado (${products.length} productos)`);
       } else {
-        console.log('⚠️ No se encontraron productos para el contexto');
+        console.log('⚠️ No se encontraron productos relevantes para el contexto');
       }
     } catch (e) {
       console.warn('⚠️ Error obteniendo productos:', e?.message);
@@ -211,33 +222,67 @@ export async function POST(request) {
 /**
  * Carga productos del proveedor directamente desde MongoDB (seguro ante vendorId inválido)
  */
-async function getProductsForContextFromDB(vendorId) {
-  try {
-    const filter = { status: 'active' };
-    if (isValidObjectId(vendorId)) {
-      filter.vendorId = vendorId;
-    } else {
-      console.warn(`⚠️ VendorId inválido (${vendorId}), cargando productos sin filtro`);
-    }
-
-    const projection = {
-      name: 1,
-      category: 1,
-      brand: 1,
-      offerPrice: 1,
-      price: 1,
-      description: 1,
-      stock: 1,
-      inStock: 1,
-      quantity: 1,
-    };
-
-    const products = await Product.find(filter, projection).lean();
-    return products || [];
-  } catch (err) {
-    console.error('Error obteniendo productos:', err);
-    return [];
+async function searchProductsForMessage(userMessage, vendorId, limit = 8) {
+  const baseFilter = { status: 'active' };
+  if (isValidObjectId(vendorId)) {
+    baseFilter.vendorId = vendorId;
+  } else if (vendorId) {
+    console.warn(`⚠️ VendorId inválido (${vendorId}), la búsqueda se realizará sin filtro por proveedor`);
   }
+
+  const normalizedMessage = normalizeText(userMessage || '');
+  const detectedCategories = detectCategories(normalizedMessage);
+  const searchTokens = extractSearchTokens(normalizedMessage);
+
+  const filter = { ...baseFilter };
+  if (detectedCategories.length > 0) {
+    filter.category = { $in: detectedCategories };
+  }
+
+  const projection = {
+    name: 1,
+    category: 1,
+    brand: 1,
+    offerPrice: 1,
+    price: 1,
+    description: 1,
+    stock: 1,
+    inStock: 1,
+    quantity: 1,
+  };
+
+  let products = [];
+  const searchRegex = buildSearchRegex(searchTokens);
+  const queryFilter = { ...filter };
+
+  if (searchRegex) {
+    queryFilter.$or = [
+      { name: { $regex: searchRegex } },
+      { brand: { $regex: searchRegex } },
+      { description: { $regex: searchRegex } },
+    ];
+  }
+
+  try {
+    const query = Product.find(queryFilter, projection).limit(limit);
+    products = await query.lean();
+  } catch (err) {
+    console.warn('⚠️ Error ejecutando búsqueda de productos principal:', err?.message);
+    products = [];
+  }
+
+  if (!products.length && searchRegex) {
+    try {
+      const fallbackQuery = Product.find(filter, projection)
+        .sort({ createdAt: -1 })
+        .limit(limit);
+      products = await fallbackQuery.lean();
+    } catch (fallbackError) {
+      console.warn('⚠️ Error ejecutando búsqueda de productos de respaldo:', fallbackError?.message);
+    }
+  }
+
+  return Array.isArray(products) ? products : [];
 }
 
 /**
@@ -273,14 +318,98 @@ function generateProductsSummary(products) {
   let summary = `Tenemos ${products.length} productos en: ${displayCategories}.`;
   if (priceRange) summary += ` Precios: Q${priceRange.min} a Q${priceRange.max}.`;
 
-  const featured = products.slice(0, 3);
-  if (featured.length > 0) {
-    summary += `\n\nDestacados:`;
-    featured.forEach((p) => {
-      const cat = categoryNames[p.category] || p.category || 'General';
-      const price = p.offerPrice ?? p.price ?? '—';
-      summary += `\n• ${p.name} (${cat}) - Q${price}`;
-    });
-  }
+  const details = products.map((p, index) => {
+    const cat = categoryNames[p.category] || p.category || 'General';
+    const price = p.offerPrice ?? p.price ?? '—';
+    const availability =
+      p.inStock === false || p.stock === 0 || p.quantity === 0 ? 'Agotado' : 'Disponible';
+    return `${index + 1}. ${p.name} (${cat}) - Q${price} (${availability})`;
+  });
+
+  summary += `\n\nProductos relevantes para esta consulta:\n${details.join('\n')}`;
   return summary;
 }
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+}
+
+const CATEGORY_KEYWORDS = {
+  smartphone: ['smartphone', 'telefono', 'celular', 'iphone', 'android', 'galaxy'],
+  laptop: ['laptop', 'computadora', 'notebook', 'portatil', 'macbook'],
+  earphone: ['audifono', 'earphone', 'auricular', 'in-ear', 'earbud'],
+  headphone: ['headphone', 'auricular de diadema', 'over-ear', 'diadema'],
+  watch: ['reloj', 'smartwatch', 'watch', 'banda'],
+  camera: ['camara', 'camera', 'fotografica', 'dslr'],
+  accessories: ['accesorio', 'accesorios', 'cable', 'cargador', 'funda'],
+  tablet: ['tablet', 'ipad'],
+  console: ['consola', 'playstation', 'xbox', 'nintendo', 'switch'],
+  gaming: ['gaming', 'videojuego', 'juego'],
+  home: ['hogar', 'smart home', 'casa', 'iluminacion'],
+};
+
+function detectCategories(normalizedMessage) {
+  if (!normalizedMessage) return [];
+  const categories = [];
+  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((keyword) => normalizedMessage.includes(keyword))) {
+      categories.push(category);
+    }
+  }
+  return categories;
+}
+
+const STOP_WORDS = new Set([
+  'que',
+  'para',
+  'como',
+  'unos',
+  'unas',
+  'tengo',
+  'tienes',
+  'tienen',
+  'quiero',
+  'cuales',
+  'cual',
+  'hay',
+  'hola',
+  'buenos',
+  'dias',
+  'tardes',
+  'noches',
+  'sobre',
+  'del',
+  'los',
+  'las',
+  'una',
+  'por',
+  'mas',
+  'me',
+  'pueden',
+  'puedo',
+  'ver',
+  'informacion',
+  'buscar',
+  'buscando',
+  'disponibles',
+  'tienen',
+  'ofrecen',
+]);
+
+function extractSearchTokens(normalizedMessage) {
+  return Array.from(new Set(normalizedMessage.split(/[^a-z0-9]+/)))
+    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
+}
+
+function buildSearchRegex(tokens) {
+  if (!tokens?.length) return null;
+  const pattern = tokens
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+  return pattern ? new RegExp(pattern, 'i') : null;
+}
+
+export { searchProductsForMessage, generateProductsSummary };

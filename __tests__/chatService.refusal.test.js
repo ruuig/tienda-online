@@ -19,6 +19,7 @@ jest.mock('@/src/infrastructure/openai/openaiClient.js', () => {
 
 jest.mock('@/src/services/conversationalCartService.js', () => ({
   conversationalCartService: {
+    initialize: jest.fn().mockResolvedValue(),
     searchProducts: jest.fn().mockResolvedValue([]),
     findProductInMessage: jest.fn().mockResolvedValue(null),
     processProductPurchaseIntent: jest.fn(),
