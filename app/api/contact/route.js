@@ -30,11 +30,15 @@ export async function POST(req) {
       priority: 'medium',
       status: 'open',
       messages: [{
-        sender: 'customer',
-        senderName: name,
-        senderEmail: email,
+        senderType: 'user',
+        senderId: email,
         content: message,
-        sentAt: new Date()
+        metadata: {
+          senderName: name,
+          senderEmail: email,
+          source: 'contact_form'
+        },
+        createdAt: new Date()
       }],
       metadata: {
         source: 'contact_form',
@@ -64,16 +68,16 @@ Mensaje:
 ${message}
     `;
 
-    const info = await transporter.sendMail({
+    const transportInfo = await transporter.sendMail({
       from: `"${name}" <${process.env.SMTP_USER}>`,
       to: toList.join(","),
       subject: `[Soporte] ${subject}`,
       replyTo: `${name} <${email}>`,
       text: textBody,
     });
-    const { info } = await sendContactEmail({ name, email, subject, message });
+    const { info: contactInfo } = await sendContactEmail({ name, email, subject, message });
 
-    return new Response(JSON.stringify({ ok: true, message: "Mensaje enviado correctamente", ticketId: ticket._id.toString(), emailId: info.messageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ ok: true, message: "Mensaje enviado correctamente", ticketId: ticket._id.toString(), emailId: contactInfo.messageId }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   } catch (err) {
     if (err instanceof ContactConfigurationError) {
       return new Response(

@@ -21,6 +21,14 @@ const slideSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  buttonLink1: {
+    type: String,
+    default: ''
+  },
+  buttonLink2: {
+    type: String,
+    default: ''
+  },
   imgSrc: {
     type: String,
     required: true

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { assets } from "@/src/assets/assets";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 
 const HeaderSlider = () => {
   const [sliderData, setSliderData] = useState([])
@@ -8,6 +9,7 @@ const HeaderSlider = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const pauseTimeoutRef = useRef(null);
+  const router = useRouter();
 
   // Función para convertir nombres de assets a URLs reales
   const getImageUrl = (imgSrc) => {
@@ -87,6 +89,24 @@ const HeaderSlider = () => {
     }, 5000);
   };
 
+  const resolveLink = (link) => {
+    if (!link) {
+      return null;
+    }
+
+    if (link.startsWith('http://') || link.startsWith('https://') || link.startsWith('/')) {
+      return link;
+    }
+
+    // Si se proporciona un ID de producto, generar la ruta automáticamente
+    return `/product/${link}`;
+  };
+
+  const handleNavigate = (primaryLink, fallback = '/all-products') => {
+    const target = resolveLink(primaryLink) || fallback;
+    router.push(target);
+  };
+
   if (loading || sliderData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -122,10 +142,16 @@ const HeaderSlider = () => {
                 {slide.title}
               </h1>
               <div className="flex items-center mt-6 md:mt-8 gap-4">
-                <button className="px-10 py-3 bg-secondary-500 hover:bg-secondary-600 rounded-lg text-white font-medium transition-colors shadow-md hover:shadow-lg hover:shadow-secondary-100">
+                <button
+                  onClick={() => handleNavigate(slide.buttonLink1, '/product')}
+                  className="px-10 py-3 bg-secondary-500 hover:bg-secondary-600 rounded-lg text-white font-medium transition-colors shadow-md hover:shadow-lg hover:shadow-secondary-100"
+                >
                   {slide.buttonText1}
                 </button>
-                <button className="group flex items-center gap-2 px-6 py-3 font-medium text-primary-700 hover:text-primary-800 transition-colors">
+                <button
+                  onClick={() => handleNavigate(slide.buttonLink2, '/all-products')}
+                  className="group flex items-center gap-2 px-6 py-3 font-medium text-primary-700 hover:text-primary-800 transition-colors"
+                >
                   {slide.buttonText2}
                   <Image
                     className="group-hover:translate-x-1 transition-transform w-4 h-4"

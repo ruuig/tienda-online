@@ -80,10 +80,11 @@ export class ChatService {
         };
       }
 
-      // 3. Si no es compra, generar respuesta normal con OpenAI
-      const systemMessage = this.getSystemMessage(aiContext);
+      // 3. Si no es compra, preparar system message con el contexto enriquecido
+      const aiSystemMessage = this.getSystemMessage(aiContext);
+
       // 3. Detectar consultas fuera de contexto de la tienda y responder con negativa alegre
-      if (this.shouldRefuseRequest(intent, userMessage, context)) {
+      if (this.shouldRefuseRequest(intent, userMessage, aiContext)) {
         console.log('ChatService: Consulta fuera de contexto detectada, enviando negativa.');
 
         const refusalMessage = this.buildOffTopicMessage(userMessage);
@@ -106,15 +107,14 @@ export class ChatService {
           success: true,
           message: botMessageData,
           intent,
-          sources: context.sources || [],
+          sources: aiContext.ragSources || [],
           processingTime: Date.now() - startTime
         };
       }
 
-      // 4. Si no es compra, generar respuesta normal con OpenAI
-      const systemMessage = this.getSystemMessage(context);
+      // 4. Generar respuesta normal con OpenAI reutilizando systemMessage
       const messages = [
-        { role: 'system', content: systemMessage },
+        { role: 'system', content: aiSystemMessage },
         { role: 'user', content: userMessage }
       ];
 
@@ -332,7 +332,11 @@ export class ChatService {
 
     const looksStoreRelated = storeKeywords.some(keyword => normalizedMessage.includes(keyword));
 
-    const hasRelevantContext = Array.isArray(context?.sources) && context.sources.length > 0;
+    // Mejor cobertura del contexto relevante
+    const hasRelevantContext =
+      (Array.isArray(context?.sources) && context.sources.length > 0) ||
+      (Array.isArray(context?.ragSources) && context.ragSources.length > 0) ||
+      (Array.isArray(context?.products) && context.products.length > 0);
 
     return !looksStoreRelated && !hasRelevantContext && this.isGeneralConversationIntent(intent.intent);
   }

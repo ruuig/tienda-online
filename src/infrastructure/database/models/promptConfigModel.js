@@ -4,9 +4,8 @@ const promptConfigSchema = new mongoose.Schema({
   vendorId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
-    unique: true,
-    index: true
+    required: true
+    // OJO: no pongas unique/index aquí; lo definimos abajo con schema.index(...)
   },
   systemPrompt: {
     type: String,
@@ -68,14 +67,14 @@ const promptConfigSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Índices para optimizar consultas
+// Índices (sin duplicar vendorId)
 promptConfigSchema.index({ vendorId: 1 }, { unique: true });
 promptConfigSchema.index({ isActive: 1, updatedAt: -1 });
 
-// Middleware para incrementar versión
+// Versionado y timestamp
 promptConfigSchema.pre('save', function(next) {
-  if (this.isModified() && this.isModified() !== this.isNew) {
-    this.version += 1;
+  if (!this.isNew && this.isModified()) {
+    this.version = (this.version || 0) + 1;
   }
   this.updatedAt = new Date();
   next();
