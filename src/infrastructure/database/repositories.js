@@ -157,6 +157,18 @@ export class DocumentRepositoryImpl extends IDocumentRepository {
     if (filters.category) query.category = filters.category;
     if (filters.isActive !== undefined) query.isActive = filters.isActive;
 
+    if (filters.vendorId) {
+      if (filters.vendorId === 'default_vendor') {
+        query.$or = [
+          { vendorId: filters.vendorId },
+          { vendorId: { $exists: false } },
+          { vendorId: null }
+        ];
+      } else {
+        query.vendorId = filters.vendorId;
+      }
+    }
+
     return await Document.find(query).sort({ createdAt: -1 });
   }
 

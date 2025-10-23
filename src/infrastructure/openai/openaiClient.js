@@ -85,6 +85,21 @@ export class OpenAIClient {
    * @returns {Object} - Mensaje del sistema
    */
   buildSystemMessage(context) {
+    const ragSnippets = Array.isArray(context?.ragSnippets) ? context.ragSnippets : [];
+    const ragSources = Array.isArray(context?.ragSources) ? context.ragSources : [];
+
+    const ragDetails = ragSnippets.length > 0
+      ? `\n\nDOCUMENTOS DISPONIBLES PARA SOPORTE:\n${ragSnippets.map(snippet => `[#${snippet.index}] ${snippet.title}${snippet.source ? ` (Fuente: ${snippet.source})` : ''}\n${snippet.excerpt}`).join('\n\n')}`
+      : '';
+
+    const ragGuidelines = ragSnippets.length > 0
+      ? `\n\nGUÍA DE CITAS:\n- Usa los fragmentos solo si son relevantes para la consulta.\n- Cita la fuente utilizando el identificador [#n] correspondiente.\n- Si la información no está disponible, indícalo y ofrece escalar a un agente.`
+      : '';
+
+    const ragSourceSummary = ragSources.length > 0
+      ? `\n\nFUENTES REFERENCIALES:\n${ragSources.map(source => `[#${source.index}] ${source.title || 'Documento'}${source.source ? ` — ${source.source}` : ''}`).join('\n')}`
+      : '';
+
     const baseInstructions = `Eres un asistente de atención al cliente para una tienda online de tecnología.
 
 INSTRUCCIONES:
@@ -101,7 +116,7 @@ CONTEXTO DE LA TIENDA:
 - Políticas de devolución: 30 días para productos sin usar
 
 ${context.products ? `PRODUCTOS DISPONIBLES: ${JSON.stringify(context.products.slice(0, 5))}` : ''}
-${context.documents ? `INFORMACIÓN DE SOPORTE: ${context.documents.map(d => d.title).join(', ')}` : ''}
+${context.documents ? `INFORMACIÓN DE SOPORTE: ${context.documents.map(d => d.title).join(', ')}` : ''}${ragDetails}${ragSourceSummary}${ragGuidelines}
 
 Responde siempre de manera útil y orientada al cliente.`;
 
