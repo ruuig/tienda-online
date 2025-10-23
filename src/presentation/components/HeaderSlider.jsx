@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { assets } from "@/src/assets/assets";
 import Image from "next/image";
 
@@ -6,6 +6,8 @@ const HeaderSlider = () => {
   const [sliderData, setSliderData] = useState([])
   const [loading, setLoading] = useState(true)
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const pauseTimeoutRef = useRef(null);
 
   // Función para convertir nombres de assets a URLs reales
   const getImageUrl = (imgSrc) => {
@@ -48,16 +50,41 @@ const HeaderSlider = () => {
   }, [])
 
   useEffect(() => {
-    if (sliderData.length > 0) {
+    // 🎬 AUTOPLAY CON PAUSA: Solo funciona cuando no está pausado
+    // Si el usuario hace click en las bolitas, se pausa por 5 segundos
+    if (sliderData.length > 0 && !isPaused) {
       const interval = setInterval(() => {
         setCurrentSlide((prev) => (prev + 1) % sliderData.length);
       }, 3000);
       return () => clearInterval(interval);
     }
-  }, [sliderData.length]);
+  }, [sliderData.length, isPaused]);
+
+  // Cleanup timeout cuando el componente se desmonte
+  useEffect(() => {
+    return () => {
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSlideChange = (index) => {
     setCurrentSlide(index);
+
+    // 🎯 PAUSA DEL AUTOPLAY: Cuando el usuario hace click en una bolita,
+    // el slider se pausa por 5 segundos para dar tiempo de ver el contenido
+    setIsPaused(true);
+
+    // Limpiar timeout anterior si existe (evitar memory leaks)
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+    }
+
+    // Reanudar autoplay después de 5 segundos
+    pauseTimeoutRef.current = setTimeout(() => {
+      setIsPaused(false);
+    }, 5000);
   };
 
   if (loading || sliderData.length === 0) {
@@ -132,9 +159,14 @@ const HeaderSlider = () => {
           <div
             key={index}
             onClick={() => handleSlideChange(index)}
-            className={`h-2 w-2 rounded-full cursor-pointer transition-colors ${
-              currentSlide === index ? "bg-secondary-500 w-6" : "bg-gray-300 hover:bg-gray-400 w-2"
+            className={`h-2 rounded-full cursor-pointer transition-all duration-300 ${
+              currentSlide === index
+                ? isPaused
+                  ? "bg-primary-500 w-8" // Indicador visual cuando está pausado
+                  : "bg-secondary-500 w-6"
+                : "bg-gray-300 hover:bg-gray-400 w-2"
             }`}
+            title={isPaused ? "Autoplay pausado por 5 segundos" : "Click para pausar autoplay"}
           ></div>
         ))}
       </div>
