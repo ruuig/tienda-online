@@ -1,8 +1,7 @@
 // API para gestión de documentos RAG
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
-import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositories';
-import { RAGService } from '@/src/infrastructure/rag/ragService';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 import { getAuthUser } from '@/lib/auth';
 
 // GET /api/chat/rag/documents - Obtener documentos activos para RAG
@@ -18,8 +17,12 @@ export async function GET(request) {
       }, { status: 403 });
     }
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const documents = await documentRepository.findAll({ isActive: true });
+    const { searchParams } = new URL(request.url);
+    const vendorId = searchParams.get('vendorId');
+
+    const ragService = getSharedRAGService();
+    await ragService.ensureIndexLoaded({ vendorId });
+    const documents = ragService.getIndexedDocuments(vendorId);
 
     return NextResponse.json({
       success: true,
@@ -48,13 +51,19 @@ export async function POST(request) {
       }, { status: 403 });
     }
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const ragService = new RAGService(documentRepository);
+    const ragService = getSharedRAGService();
 
-    // Reconstruir índice
-    await ragService.rebuildIndex();
+    let vendorId = null;
+    try {
+      const body = await request.json();
+      vendorId = body?.vendorId || null;
+    } catch (parseError) {
+      vendorId = null;
+    }
 
-    const stats = ragService.getStats();
+    await ragService.ensureIndexLoaded({ vendorId, force: true });
+
+    const stats = ragService.getStats({ vendorId });
 
     return NextResponse.json({
       success: true,
@@ -84,10 +93,13 @@ export async function GET_STATS(request) {
       }, { status: 403 });
     }
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const ragService = new RAGService(documentRepository);
+    const { searchParams } = new URL(request.url);
+    const vendorId = searchParams.get('vendorId');
+    const ragService = getSharedRAGService();
 
-    const stats = ragService.getStats();
+    await ragService.ensureIndexLoaded({ vendorId });
+
+    const stats = ragService.getStats({ vendorId });
 
     return NextResponse.json({
       success: true,

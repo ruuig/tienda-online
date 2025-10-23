@@ -23,6 +23,7 @@ export class OpenAIClient {
     this.model = process.env.OPENAI_MODEL || 'gpt-4';
     this.maxTokens = 500;
     this.temperature = 0.7;
+    this.maxPromptCharacters = 12000;
   }
 
   /**
@@ -34,8 +35,12 @@ export class OpenAIClient {
   async generateResponse(messages, context = {}) {
     try {
       console.log('OpenAIClient: Generando respuesta...');
-      const systemMessage = this.buildSystemMessage(context);
-      const messagesWithContext = [systemMessage, ...messages];
+      const preparedMessages = Array.isArray(messages) ? [...messages] : [];
+      const hasSystemMessage = preparedMessages.some((message) => message?.role === 'system');
+      const baseMessages = hasSystemMessage
+        ? preparedMessages
+        : [this.buildSystemMessage(context), ...preparedMessages];
+      const messagesWithContext = this.truncateMessages(baseMessages);
 
       const response = await this.client.chat.completions.create({
         model: this.model,
@@ -64,6 +69,42 @@ export class OpenAIClient {
       }
       throw new Error('Error generando respuesta automática. Un agente te ayudará pronto.');
     }
+  }
+
+  truncateMessages(messages = []) {
+    if (!Array.isArray(messages) || !messages.length) {
+      return [];
+    }
+
+    if (!this.maxPromptCharacters) {
+      return messages;
+    }
+
+    const systemMessages = messages.filter((message) => message?.role === 'system');
+    const conversationMessages = messages.filter((message) => message?.role !== 'system');
+
+    let accumulatedLength = 0;
+    const keptMessages = [];
+
+    for (let index = conversationMessages.length - 1; index >= 0; index -= 1) {
+      const message = conversationMessages[index];
+      const contentLength = message?.content?.length || 0;
+
+      if (accumulatedLength + contentLength > this.maxPromptCharacters && keptMessages.length > 0) {
+        continue;
+      }
+
+      accumulatedLength += contentLength;
+      keptMessages.push(message);
+
+      if (accumulatedLength >= this.maxPromptCharacters) {
+        break;
+      }
+    }
+
+    keptMessages.reverse();
+
+    return [...systemMessages, ...keptMessages];
   }
 
   /**

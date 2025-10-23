@@ -33,6 +33,33 @@ export class ConversationPersistenceService {
     this.persistThreshold = persistThreshold;
   }
 
+  async getRecentMessages(conversationId, { limit = 10 } = {}) {
+    if (!conversationId) {
+      return [];
+    }
+
+    try {
+      const rawMessages = await Message.find({ conversationId })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+      if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
+        return [];
+      }
+
+      return rawMessages
+        .map((message) => normalizeDocument(message))
+        .reverse();
+    } catch (error) {
+      console.warn(
+        'ConversationPersistenceService: Error obteniendo historial de mensajes:',
+        error?.message
+      );
+      return [];
+    }
+  }
+
   async ensureConversation({
     conversationId,
     vendorId,
