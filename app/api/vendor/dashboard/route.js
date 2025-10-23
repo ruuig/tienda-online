@@ -1,12 +1,12 @@
 // API del panel de vendedor para gestión completa del sistema de chat
 import connectDB from '../../../../src/infrastructure/database/db.js';
 import { Document, DocumentChunk, PromptConfig, Conversation, Message } from '../../../../src/infrastructure/database/models/index.js';
-import { createRAGService } from '../../../../src/infrastructure/rag/ragService.js';
+import { getSharedRAGService } from '../../../../src/infrastructure/rag/ragServiceRegistry.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 
-const ragService = createRAGService(process.env.OPENAI_API_KEY);
+const ragService = getSharedRAGService();
 const isTestMode = process.env.VENDOR_DASHBOARD_TEST_MODE === 'true';
 let nextResponseClass;
 

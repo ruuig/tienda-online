@@ -1,7 +1,7 @@
 // Script de inicialización del sistema de chat avanzado
 import connectDB from '@/src/infrastructure/database/db.js';
 import { createChatService } from '@/src/infrastructure/openai/chatService.js';
-import { createRAGService } from '@/src/infrastructure/rag/ragService.js';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 import { createAdvancedChatWebSocketServer } from '@/src/infrastructure/websocket/advancedWebSocketServer.js';
 import { createServer } from 'http';
 import { parse } from 'url';
@@ -50,7 +50,7 @@ export class ChatSystemManager {
 
       // 3. Inicializar servicios
       this.chatService = createChatService(process.env.OPENAI_API_KEY);
-      this.ragService = createRAGService(process.env.OPENAI_API_KEY);
+      this.ragService = getSharedRAGService();
 
       console.log('✅ Servicios inicializados');
 
