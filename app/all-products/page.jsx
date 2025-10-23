@@ -8,17 +8,17 @@ import { useAppContext } from "@/context/AppContext";
 
 const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
   const categoryNames = {
-    'smartphone': 'Smartphones',
-    'laptop': 'Computadoras',
-    'earphone': 'Earphones',
-    'headphone': 'Headphones',
-    'watch': 'Relojes Inteligentes',
-    'camera': 'Cámaras',
-    'accessories': 'Accesorios',
-    'tablet': 'Tablets',
-    'console': 'Consolas',
-    'gaming': 'Juegos',
-    'home': 'hogar',
+    'Accessories': 'Accesorios',
+    'Smartphone': 'Smartphones',
+    'Laptop': 'Computadoras',
+    'Earphone': 'Earphones',
+    'Headphone': 'Headphones',
+    'Watch': 'Relojes Inteligentes',
+    'Camera': 'Cámaras',
+    'Tablet': 'Tablets',
+    'Console': 'Consolas',
+    'Gaming': 'Juegos',
+    'Home': 'Hogar',
   };
 
   const categories = ['All', ...Object.keys(categoryNames)];
