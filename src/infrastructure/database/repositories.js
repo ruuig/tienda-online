@@ -157,6 +157,18 @@ export class DocumentRepositoryImpl extends IDocumentRepository {
     if (filters.category) query.category = filters.category;
     if (filters.isActive !== undefined) query.isActive = filters.isActive;
 
+    if (filters.vendorId) {
+      if (filters.vendorId === 'default_vendor') {
+        query.$or = [
+          { vendorId: filters.vendorId },
+          { vendorId: { $exists: false } },
+          { vendorId: null }
+        ];
+      } else {
+        query.vendorId = filters.vendorId;
+      }
+    }
+
     return await Document.find(query).sort({ createdAt: -1 });
   }
 
@@ -246,17 +258,52 @@ export class TicketRepositoryImpl extends ITicketRepository {
     if (filters.priority) query.priority = filters.priority;
     if (filters.category) query.category = filters.category;
     if (filters.assignedTo) query.assignedTo = filters.assignedTo;
+    if (filters.userId) query.userId = filters.userId;
+    if (filters.source) query['metadata.source'] = filters.source;
 
     return await Ticket.find(query).sort({ createdAt: -1 });
   }
 
   async create(ticketData) {
-    const ticket = new Ticket(ticketData);
+    const ticket = new Ticket({
+      ...ticketData,
+      messages: ticketData.messages || []
+    });
     return await ticket.save();
   }
 
   async update(id, ticketData) {
-    return await Ticket.findByIdAndUpdate(id, ticketData, { new: true });
+    const { messages: messagesToAppend, ...fieldsToUpdate } = ticketData || {};
+    const updateOperations = {};
+
+    if (fieldsToUpdate && Object.keys(fieldsToUpdate).length > 0) {
+      updateOperations.$set = {
+        ...fieldsToUpdate,
+        updatedAt: new Date()
+      };
+    } else {
+      updateOperations.$set = { updatedAt: new Date() };
+    }
+
+    if (messagesToAppend) {
+      const messagesArray = Array.isArray(messagesToAppend) ? messagesToAppend : [messagesToAppend];
+      const normalizedMessages = messagesArray
+        .filter(message => !!message)
+        .map(message => ({
+          ...message,
+          createdAt: message?.createdAt ? new Date(message.createdAt) : new Date()
+        }));
+
+      if (normalizedMessages.length > 0) {
+        updateOperations.$push = {
+          messages: {
+            $each: normalizedMessages
+          }
+        };
+      }
+    }
+
+    return await Ticket.findByIdAndUpdate(id, updateOperations, { new: true });
   }
 
   async assignTo(id, adminId) {
