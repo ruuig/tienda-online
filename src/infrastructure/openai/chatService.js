@@ -4,9 +4,13 @@ import { conversationalCartService } from '@/src/services/conversationalCartServ
 import { createPromptConfigService } from '@/src/services/promptConfigService.js';
 
 const promptConfigService = createPromptConfigService();
-const OFF_TOPIC_TEMPLATE = promptConfigService.getPrompt('offTopicResponse')?.content ||
+const OFF_TOPIC_TEMPLATE =
+  promptConfigService.getPrompt('offTopicResponse')?.content ||
   '¡Hola! 😊 Soy un asistente especializado únicamente en productos tecnológicos y compras en nuestra tienda online. ' +
   'Para preguntas sobre {TOPIC}, te recomiendo consultar fuentes especializadas. ¿Te puedo ayudar con smartphones, laptops, audífonos u otros productos electrónicos? 🛒';
+
+// --- Memoria corta en proceso (por conversación) ---
+const convoMemory = new Map(); // conversationId -> { lastProducts: [], lastQuery: '', ts: number }
 
 export class ChatService {
   constructor(openaiApiKey) {
@@ -15,14 +19,13 @@ export class ChatService {
 
   /**
    * Procesa un mensaje del usuario y genera respuesta automática
-   * @param {string} conversationId - ID de la conversación
-   * @param {string} userMessage - Mensaje del usuario
-   * @param {Object} context - Contexto adicional (incluyendo productos)
-   * @returns {Promise<Object>} - Respuesta procesada
    */
   async processUserMessage(conversationId, userMessage, context = {}) {
     const startTime = Date.now();
-    console.log('ChatService: Procesando mensaje:', { conversationId, userMessage: userMessage.substring(0, 100) });
+    console.log('ChatService: Procesando mensaje:', {
+      conversationId,
+      userMessage: userMessage?.substring?.(0, 100),
+    });
 
     try {
       const { ragContext: incomingRagContext, ...baseContext } = context || {};
@@ -30,20 +33,39 @@ export class ChatService {
       const aiContext = {
         ...baseContext,
         ragSnippets: ragData.snippets,
-        ragSources: ragData.sources
+        ragSources: ragData.sources,
       };
 
+      // -------- Enriquecer contexto con coincidencias locales de catálogo --------
+      const localMatches = this.findProductsInText(userMessage, aiContext.products || []);
+      if (this.isReferential(userMessage) && localMatches.length === 0) {
+        const mem = convoMemory.get(conversationId);
+        if (mem?.lastProducts?.length) localMatches.push(...mem.lastProducts.slice(0, 3));
+      }
+      if (localMatches.length) {
+        aiContext.products = this.uniqueById([...(localMatches || []), ...(aiContext.products || [])]);
+        aiContext.productsSummary = this.generateProductsSummary(aiContext.products);
+      }
+
       console.log('ChatService: Clasificando intención...');
-      // 1. Clasificar intención del mensaje
       const intent = await this.openaiClient.classifyIntent(userMessage);
       console.log('ChatService: Intención clasificada:', intent);
 
-      // 2. Procesar intenciones de compra conversacional
-      const purchaseResult = await this.processPurchaseIntent(conversationId, userMessage, intent, aiContext);
+      // 2) Flujo de compra conversacional
+      const purchaseResult = await this.processPurchaseIntent(
+        conversationId,
+        userMessage,
+        intent,
+        aiContext
+      );
 
-      // Si hay una respuesta específica para compra, usarla
       if (purchaseResult) {
         console.log('ChatService: Respuesta de compra generada:', purchaseResult.action);
+
+        // Memorizar si hubo productos en la respuesta
+        if (purchaseResult.products?.length) {
+          this.rememberProducts(conversationId, purchaseResult.products, userMessage);
+        }
 
         const botMessageData = {
           conversationId,
@@ -56,7 +78,7 @@ export class ChatService {
             purchaseAction: purchaseResult.action,
             cartState: purchaseResult.cartSummary,
             nextSteps: purchaseResult.nextSteps,
-            products: purchaseResult.products || [], // Incluir productos si están disponibles
+            products: purchaseResult.products || [],
             processingTime: Date.now() - startTime,
             model: 'gpt-4',
             usedProductContext: !!aiContext.products,
@@ -65,10 +87,10 @@ export class ChatService {
               used: ragData.snippets.length > 0,
               snippets: ragData.snippets,
               sources: ragData.sources,
-              vendorId: incomingRagContext?.vendorId || null
-            }
+              vendorId: incomingRagContext?.vendorId || null,
+            },
           },
-          createdAt: new Date()
+          createdAt: new Date(),
         };
 
         return {
@@ -76,18 +98,54 @@ export class ChatService {
           message: botMessageData,
           intent,
           sources: ragData.sources,
-          processingTime: Date.now() - startTime
+          processingTime: Date.now() - startTime,
         };
       }
 
-      // 3. Si no es compra, preparar system message con el contexto enriquecido
-      const aiSystemMessage = this.getSystemMessage(aiContext);
+      // 3) System message reforzado (regla de disponibilidad)
+      const aiSystemMessage = this.getSystemMessage({
+        ...aiContext,
+        availabilityRule: `
+Si el nombre de un producto coincide con alguno en "PRODUCTOS DISPONIBLES" NO digas que "no está disponible"
+a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asume disponible.`,
+      });
 
-      // 3. Detectar consultas fuera de contexto de la tienda y responder con negativa alegre
+      // 3.1) Saludos
+      if (this.isGreeting(userMessage)) {
+        const hour = new Date().getHours();
+        let saludo = 'Hola';
+        if (hour >= 6 && hour < 12) saludo = 'Buenos días';
+        else if (hour >= 12 && hour < 19) saludo = 'Buenas tardes';
+        else saludo = 'Buenas noches';
+
+        const botMessageData = {
+          conversationId,
+          content: `${saludo} 👋 ¿En qué puedo ayudarte?`,
+          sender: 'bot',
+          type: 'text',
+          metadata: {
+            intent: 'saludo',
+            confidence: 0.99,
+            processingTime: Date.now() - startTime,
+            model: 'policy-greeting',
+          },
+          createdAt: new Date(),
+        };
+
+        return {
+          success: true,
+          message: botMessageData,
+          intent: { intent: 'saludo', confidence: 0.99 },
+          sources: aiContext.ragSources || [],
+          processingTime: Date.now() - startTime,
+        };
+      }
+
+      // 3.2) Off-topic friendly refusal
       if (this.shouldRefuseRequest(intent, userMessage, aiContext)) {
         console.log('ChatService: Consulta fuera de contexto detectada, enviando negativa.');
-
         const refusalMessage = this.buildOffTopicMessage(userMessage);
+
         const botMessageData = {
           conversationId,
           content: refusalMessage,
@@ -98,9 +156,9 @@ export class ChatService {
             confidence: intent.confidence,
             refusal: true,
             processingTime: Date.now() - startTime,
-            model: 'refusal-policy'
+            model: 'refusal-policy',
           },
-          createdAt: new Date()
+          createdAt: new Date(),
         };
 
         return {
@@ -108,37 +166,46 @@ export class ChatService {
           message: botMessageData,
           intent,
           sources: aiContext.ragSources || [],
-          processingTime: Date.now() - startTime
+          processingTime: Date.now() - startTime,
         };
       }
 
-      // 4. Generar respuesta normal con OpenAI reutilizando systemMessage
+      // 4) Generar respuesta normal con OpenAI
       const messages = [
         { role: 'system', content: aiSystemMessage },
-        { role: 'user', content: userMessage }
+        { role: 'user', content: userMessage },
       ];
 
       console.log('ChatService: Generando respuesta con OpenAI...');
       const response = await this.openaiClient.generateResponse(messages, {
         ...aiContext,
         intent: intent.intent,
-        confidence: intent.confidence
+        confidence: intent.confidence,
       });
 
-      console.log('ChatService: Respuesta generada:', response.substring(0, 100));
+      console.log('ChatService: Respuesta generada:', response?.substring?.(0, 100));
 
-      // 5. Buscar productos relacionados si la consulta menciona productos
+      // 5) Productos relacionados (texto + servicio) y memorizar
       let relevantProducts = [];
-      if (intent.intent === 'consulta_producto' || userMessage.toLowerCase().includes('producto')) {
-        try {
-          relevantProducts = await conversationalCartService.searchProducts(userMessage, 3);
-          console.log(`ChatService: Encontrados ${relevantProducts.length} productos relacionados`);
-        } catch (error) {
-          console.warn('ChatService: Error buscando productos relacionados:', error.message);
+      try {
+        const textMatches = this.findProductsInText(userMessage, aiContext.products || []);
+        relevantProducts = this.uniqueById([...(textMatches || [])]);
+
+        if (
+          relevantProducts.length === 0 &&
+          (intent.intent === 'consulta_producto' ||
+            (userMessage || '').toLowerCase().includes('producto'))
+        ) {
+          const svcMatches = await conversationalCartService.searchProducts(userMessage, 3);
+          relevantProducts = this.uniqueById([...(svcMatches || [])]);
         }
+      } catch (e) {
+        console.warn('ChatService: Error buscando productos relacionados:', e?.message);
       }
 
-      // 6. Crear mensaje de respuesta del bot
+      if (relevantProducts.length) this.rememberProducts(conversationId, relevantProducts, userMessage);
+
+      // 6) Respuesta final
       const botMessageData = {
         conversationId,
         content: response,
@@ -151,66 +218,60 @@ export class ChatService {
           model: 'gpt-4',
           usedProductContext: !!aiContext.products,
           productsCount: aiContext.products?.length || 0,
-          products: relevantProducts, // Incluir productos relacionados
+          products: relevantProducts,
           rag: {
             used: ragData.snippets.length > 0,
             snippets: ragData.snippets,
             sources: ragData.sources,
-            vendorId: incomingRagContext?.vendorId || null
-          }
+            vendorId: incomingRagContext?.vendorId || null,
+          },
         },
-        createdAt: new Date()
+        createdAt: new Date(),
       };
 
-      console.log('ChatService: Mensaje creado exitosamente');
       return {
         success: true,
         message: botMessageData,
         intent,
         sources: ragData.sources,
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
       };
-
     } catch (error) {
       console.error('ChatService: Error procesando mensaje:', error);
       console.error('ChatService: Error stack:', error.stack);
 
-      // Crear mensaje de error del bot
       const errorMessageData = {
         conversationId,
-        content: 'Lo siento, estoy teniendo problemas para procesar tu consulta. Un agente especializado te ayudará en unos momentos.',
+        content:
+          'Lo siento, estoy teniendo problemas para procesar tu consulta. Un agente especializado te ayudará en unos momentos.',
         sender: 'bot',
         type: 'text',
         metadata: {
           error: true,
           originalError: error.message,
-          processingTime: Date.now() - startTime
+          processingTime: Date.now() - startTime,
         },
-        createdAt: new Date()
+        createdAt: new Date(),
       };
 
       return {
         success: false,
         message: errorMessageData,
         error: error.message,
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
       };
     }
   }
 
   /**
    * Procesa intenciones de compra y maneja el flujo conversacional
-   * @param {string} conversationId - ID de la conversación
-   * @param {string} userMessage - Mensaje del usuario
-   * @param {Object} intent - Intención clasificada
-   * @param {Object} context - Contexto adicional
-   * @returns {Promise<Object|null>} - Resultado del flujo de compra o null
+   * (FALTABA ESTA FUNCIÓN)
    */
   async processPurchaseIntent(conversationId, userMessage, intent, context) {
-    const userId = context.userInfo?.id || 'demo-user';
+    const userId = context?.userInfo?.id || 'demo-user';
 
     // Solo procesar intenciones de compra si hay productos disponibles
-    if (!context.products || context.products.length === 0) {
+    if (!Array.isArray(context?.products) || context.products.length === 0) {
       console.log('ChatService: No hay productos disponibles para procesar compra');
       return null;
     }
@@ -221,7 +282,7 @@ export class ChatService {
       'modificar_carrito', 'proceder_pago', 'confirmar_compra'
     ];
 
-    if (!purchaseIntents.includes(intent.intent)) {
+    if (!intent || !purchaseIntents.includes(intent.intent)) {
       return null; // No es una intención de compra
     }
 
@@ -230,10 +291,9 @@ export class ChatService {
     try {
       switch (intent.intent) {
         case 'compra_producto':
-        case 'consulta_producto':
+        case 'consulta_producto': {
           // Si menciona un producto específico, buscarlo y preguntar si quiere comprarlo
           const product = await conversationalCartService.findProductInMessage(userMessage);
-
           if (product) {
             console.log('ChatService: Producto encontrado:', product.name);
             return await conversationalCartService.processProductPurchaseIntent(
@@ -244,9 +304,9 @@ export class ChatService {
             );
           }
           break;
+        }
 
-        case 'agregar_carrito':
-          // Si quiere agregar al carrito, procesar la respuesta
+        case 'agregar_carrito': {
           // Primero verificar si hay un estado de compra activo
           const cartState = conversationalCartService.getConversationState(conversationId);
 
@@ -270,137 +330,215 @@ export class ChatService {
           // Si no se puede determinar el producto, pedir aclaración
           return {
             action: 'ask_which_product',
-            message: '¡Por supuesto! Pero, necesito saber cuál producto te gustaría agregar a tu carrito. ¿Podrías indicarme el nombre del producto por favor? 😊',
-            nextSteps: [
-              'Ver productos disponibles',
-              'Buscar por nombre',
-              'Ver mi carrito actual'
-            ]
+            message:
+              '¡Por supuesto! Pero, necesito saber cuál producto te gustaría agregar a tu carrito. ¿Podrías indicarme el nombre del producto por favor? 😊',
+            nextSteps: ['Ver productos disponibles', 'Buscar por nombre', 'Ver mi carrito actual'],
           };
+        }
 
         case 'ver_carrito':
-          // Mostrar contenido del carrito
           return conversationalCartService.showCart(conversationId);
 
         case 'proceder_pago':
-          // Iniciar proceso de checkout
           return conversationalCartService.startCheckout(conversationId);
 
         case 'confirmar_compra':
-          // Confirmar y procesar compra
           return conversationalCartService.confirmPurchase(conversationId);
 
         default:
-          // Para otras intenciones, usar el estado actual de la conversación
           return await conversationalCartService.processUserResponse(conversationId, userMessage);
       }
 
       return null;
-
     } catch (error) {
       console.error('ChatService: Error procesando intención de compra:', error);
       return {
         action: 'error',
-        message: 'Lo siento, hubo un problema procesando tu solicitud de compra. ¿Puedes intentarlo de nuevo?',
-        nextSteps: [
-          'Reintentar',
-          'Ver productos disponibles',
-          'Contactar con soporte'
-        ]
+        message:
+          'Lo siento, hubo un problema procesando tu solicitud de compra. ¿Puedes intentarlo de nuevo?',
+        nextSteps: ['Reintentar', 'Ver productos disponibles', 'Contactar con soporte'],
       };
     }
   }
 
-  /**
-   * Determina si se debe rechazar la consulta por estar fuera del contexto de la tienda
-   * @param {Object} intent - Intención clasificada
-   * @param {string} userMessage - Mensaje del usuario
-   * @param {Object} context - Contexto adicional
-   * @returns {boolean}
-   */
-  shouldRefuseRequest(intent, userMessage, context) {
-    if (!intent || intent.intent === 'otra') {
-      return true;
+  // ---------------- Helpers de producto / memoria ----------------
+
+  isReferential(text = '') {
+    const t = String(text).toLowerCase();
+    return /(ese|esa|eso|ese modelo|el anterior|la anterior|lo anterior|ese producto|esa laptop|ese celular)\b/.test(
+      t
+    );
+  }
+
+  findProductsInText(text = '', products = []) {
+    if (!text || !products?.length) return [];
+    const q = String(text).toLowerCase();
+
+    // tokens con 3+ letras
+    const tokens = Array.from(
+      new Set(q.split(/[^a-záéíóúñ0-9]+/i).filter((w) => w.length >= 3))
+    );
+
+    const score = (p) => {
+      const fields = [
+        String(p.name || '').toLowerCase(),
+        String(p.description || '').toLowerCase(),
+        String(p.category || '').toLowerCase(),
+        String(p.brand || '').toLowerCase(),
+      ].join(' ');
+      let s = 0;
+      tokens.forEach((t) => {
+        if (fields.includes(t)) s += 1;
+      });
+      if (p.name && q.includes(String(p.name).toLowerCase())) s += 3; // boost
+      return s;
+    };
+
+    return products
+      .map((p) => ({ p, s: score(p) }))
+      .filter((x) => x.s > 0)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 5)
+      .map((x) => x.p);
+  }
+
+  rememberProducts(conversationId, products = [], query = '') {
+    const mem = convoMemory.get(conversationId) || {};
+    const next = {
+      lastProducts: this.uniqueById([...(products || []), ...(mem.lastProducts || [])]).slice(0, 5),
+      lastQuery: query,
+      ts: Date.now(),
+    };
+    convoMemory.set(conversationId, next);
+  }
+
+  uniqueById(arr = []) {
+    const seen = new Set();
+    const out = [];
+    for (const it of arr) {
+      const key = it?._id?.toString?.() || it?.id || it?.name;
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        out.push(it);
+      }
     }
+    return out;
+  }
+
+  // ---------------- Reglas de conversación / rechazo / saludos ----------------
+
+  shouldRefuseRequest(intent, userMessage, context) {
+    // Nunca rechazar saludos
+    if (this.isGreeting(userMessage)) return false;
+
+    // Intenciones claramente de tienda => no rechazar
+    const storeIntents = [
+      'consulta_producto',
+      'compra_producto',
+      'agregar_carrito',
+      'ver_carrito',
+      'modificar_carrito',
+      'proceder_pago',
+      'confirmar_compra',
+      'consulta_envios',
+      'consulta_pagos',
+      'consulta_garantia',
+      'consulta_precios',
+    ];
+    if (intent && storeIntents.includes(intent.intent)) return false;
 
     const normalizedMessage = typeof userMessage === 'string' ? userMessage.toLowerCase() : '';
     const storeKeywords = [
-      'producto', 'productos', 'tienda', 'comprar', 'compra', 'carrito', 'pago', 'precio',
-      'envío', 'garantía', 'tecnología', 'smartphone', 'laptop', 'audífonos', 'pedido',
-      'factura', 'oferta', 'electrónica', 'soporte'
+      'producto',
+      'productos',
+      'tienda',
+      'comprar',
+      'compra',
+      'carrito',
+      'pago',
+      'precio',
+      'envío',
+      'envios',
+      'garantía',
+      'garantias',
+      'tecnología',
+      'smartphone',
+      'laptop',
+      'audífonos',
+      'auriculares',
+      'pedido',
+      'factura',
+      'oferta',
+      'electrónica',
+      'soporte',
+      'marca',
+      'modelo',
+      'stock',
+      'disponible',
+      'disponibilidad',
     ];
 
-    const looksStoreRelated = storeKeywords.some(keyword => normalizedMessage.includes(keyword));
+    const looksStoreRelated = storeKeywords.some((k) => normalizedMessage.includes(k));
 
-    // Mejor cobertura del contexto relevante
     const hasRelevantContext =
-      (Array.isArray(context?.sources) && context.sources.length > 0) ||
+      (Array.isArray(context?.products) && context.products.length > 0) ||
       (Array.isArray(context?.ragSources) && context.ragSources.length > 0) ||
-      (Array.isArray(context?.products) && context.products.length > 0);
+      (Array.isArray(context?.sources) && context.sources.length > 0);
 
-    return !looksStoreRelated && !hasRelevantContext && this.isGeneralConversationIntent(intent.intent);
+    const generalIntents = ['saludo', 'queja', 'consulta_general', 'otra'];
+    const isGeneral = !intent || generalIntents.includes(intent.intent);
+
+    return !looksStoreRelated && !hasRelevantContext && isGeneral;
   }
 
-  /**
-   * Determina si la intención corresponde a conversación general
-   * @param {string} intentName - Nombre de la intención
-   * @returns {boolean}
-   */
   isGeneralConversationIntent(intentName) {
     const generalIntents = ['saludo', 'queja', 'consulta_general', 'otra'];
     return generalIntents.includes(intentName);
   }
 
-  /**
-   * Construye el mensaje de rechazo usando la plantilla oficial
-   * @param {string} userMessage - Mensaje original del usuario
-   * @returns {string}
-   */
+  isGreeting(text = '') {
+    const t = String(text || '').trim().toLowerCase();
+    if (!t) return false;
+    const greetings = [
+      'hola',
+      'buenos dias',
+      'buenos días',
+      'buenas tardes',
+      'buenas noches',
+      'hey',
+      'holi',
+      'hello',
+      'hi',
+    ];
+    return greetings.some((g) => t === g || t.startsWith(g));
+  }
+
   buildOffTopicMessage(userMessage) {
     const sanitizedTopic = this.extractTopic(userMessage);
     return OFF_TOPIC_TEMPLATE.replace('{TOPIC}', sanitizedTopic);
   }
 
-  /**
-   * Extrae un tema corto del mensaje del usuario
-   * @param {string} userMessage - Mensaje original del usuario
-   * @returns {string}
-   */
   extractTopic(userMessage) {
-    if (!userMessage || typeof userMessage !== 'string') {
-      return 'ese tema';
-    }
-
-    const cleaned = userMessage
-      .replace(/\s+/g, ' ')
-      .replace(/[\r\n]+/g, ' ')
-      .trim();
-
-    if (!cleaned) {
-      return 'ese tema';
-    }
-
+    if (!userMessage || typeof userMessage !== 'string') return 'ese tema';
+    const cleaned = userMessage.replace(/\s+/g, ' ').replace(/[\r\n]+/g, ' ').trim();
+    if (!cleaned) return 'ese tema';
     const firstSentence = cleaned.split(/[?.!]/)[0] || cleaned;
     const topic = firstSentence.replace(/[^\p{L}\p{N}\s]/gu, '').trim();
-
-    if (!topic) {
-      return 'ese tema';
-    }
-
+    if (!topic) return 'ese tema';
     return topic.length > 60 ? `${topic.slice(0, 57)}...` : topic;
   }
 
   /**
    * Genera el mensaje del sistema para OpenAI con contexto dinámico
-   * @param {Object} context - Contexto adicional (productos, etc.)
-   * @returns {string} - Mensaje del sistema
    */
   getSystemMessage(context = {}) {
+    const availabilityRule = context.availabilityRule || '';
     let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
 
 RESTRICCIONES CRÍTICAS:
 - Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
 - Debes responder usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
+${availabilityRule ? `- Regla de disponibilidad: ${availabilityRule}` : ''}
 
 ESTOY AQUÍ PARA AYUDARTE:
 - Te ayudo a encontrar productos perfectos para ti
@@ -433,11 +571,12 @@ CONTEXTO DE LA TIENDA:
 - Envío gratuito en compras mayores a Q500
 - Políticas de devolución: 30 días para productos sin usar
 
-¡Estoy emocionado de ayudarte con tus compras! ¿Qué te gustaría encontrar hoy? 🛒✨`;
+¡Estoy emocionado de ayudarte con tus compras! 🛒✨`;
 
     // Agregar contexto de productos si está disponible
     if (context.products && context.products.length > 0) {
-      const summary = context.productsSummary || this.generateProductsSummary(context.products);
+      const summary =
+        context.productsSummary || this.generateProductsSummary(context.products);
 
       systemMessage += `
 
@@ -461,10 +600,12 @@ ${summary}
     }
 
     if (context.ragSnippets && context.ragSnippets.length > 0) {
-      const formattedSnippets = context.ragSnippets.map(snippet => {
-        const sourceLabel = snippet.source ? ` (Fuente: ${snippet.source})` : '';
-        return `[#${snippet.index}] ${snippet.title}${sourceLabel}\n${snippet.excerpt}`;
-      }).join('\n\n');
+      const formattedSnippets = context.ragSnippets
+        .map((snippet) => {
+          const sourceLabel = snippet.source ? ` (Fuente: ${snippet.source})` : '';
+          return `[#${snippet.index}] ${snippet.title}${sourceLabel}\n${snippet.excerpt}`;
+        })
+        .join('\n\n');
 
       systemMessage += `
 
@@ -480,12 +621,8 @@ ${formattedSnippets}
     return systemMessage;
   }
 
-  /**
-   * Prepara datos de soporte RAG para enriquecer la respuesta
-   * @param {string} userMessage - Mensaje del usuario
-   * @param {Object} ragContext - Contexto RAG recibido desde la ruta
-   * @returns {Promise<{matches: Array, snippets: Array, sources: Array}>}
-   */
+  // ---------------- RAG helpers ----------------
+
   async prepareRagData(userMessage, ragContext = {}) {
     if (!ragContext) {
       return { matches: [], snippets: [], sources: [] };
@@ -494,11 +631,16 @@ ${formattedSnippets}
     let matches = Array.isArray(ragContext.matches) ? [...ragContext.matches] : [];
     const limit = ragContext.limit || 5;
 
-    const hasSearchService = ragContext.service && typeof ragContext.service.search === 'function';
+    const hasSearchService =
+      ragContext.service && typeof ragContext.service.search === 'function';
 
-    if ((matches.length === 0) && hasSearchService) {
+    if (matches.length === 0 && hasSearchService) {
       try {
-        if (ragContext.documents?.length && ragContext.service.vectorStore && ragContext.service.vectorStore.size === 0) {
+        if (
+          ragContext.documents?.length &&
+          ragContext.service.vectorStore &&
+          ragContext.service.vectorStore.size === 0
+        ) {
           await ragContext.service.buildIndex(ragContext.documents);
         }
         matches = await ragContext.service.search(userMessage, limit);
@@ -511,7 +653,7 @@ ${formattedSnippets}
       limit,
       vendorId: ragContext.vendorId,
       fallbackDocuments: ragContext.documents || [],
-      query: userMessage
+      query: userMessage,
     });
 
     const sources = this.extractRagSources(snippets);
@@ -519,26 +661,15 @@ ${formattedSnippets}
     return { matches, snippets, sources };
   }
 
-  /**
-   * Convierte resultados RAG en fragmentos legibles
-   * @param {Array} matches - Resultados devueltos por el RAG
-   * @param {Object} options - Opciones de formato
-   * @returns {Array}
-   */
   formatRagSnippets(matches, options = {}) {
-    const {
-      limit = 5,
-      vendorId = null,
-      fallbackDocuments = [],
-      query = ''
-    } = options;
+    const { limit = 5, vendorId = null, fallbackDocuments = [], query = '' } = options;
 
     let workingMatches = Array.isArray(matches) ? matches.filter(Boolean) : [];
 
     if (workingMatches.length === 0 && fallbackDocuments.length > 0) {
       const normalizedQuery = (query || '').toLowerCase();
       const fallbackMatches = fallbackDocuments
-        .map(doc => {
+        .map((doc) => {
           const content = doc.content || '';
           if (!content || !normalizedQuery) return null;
           const index = content.toLowerCase().indexOf(normalizedQuery);
@@ -560,9 +691,9 @@ ${formattedSnippets}
               {
                 content: excerpt,
                 similarity: 0.15,
-                metadata: { startIndex: start, endIndex: end }
-              }
-            ]
+                metadata: { startIndex: start, endIndex: end },
+              },
+            ],
           };
         })
         .filter(Boolean);
@@ -573,23 +704,25 @@ ${formattedSnippets}
     const snippets = [];
 
     workingMatches.forEach((doc, docIndex) => {
-      const docChunks = Array.isArray(doc.chunks) && doc.chunks.length > 0
-        ? doc.chunks
-        : [{
-          content: doc.content,
-          similarity: doc.relevanceScore,
-          metadata: doc.metadata
-        }];
+      const docChunks =
+        Array.isArray(doc.chunks) && doc.chunks.length > 0
+          ? doc.chunks
+          : [
+              {
+                content: doc.content,
+                similarity: doc.relevanceScore,
+                metadata: doc.metadata,
+              },
+            ];
 
-      docChunks.forEach((chunk, chunkIndex) => {
+      docChunks.forEach((chunk) => {
         const excerpt = this.truncateText(chunk?.content || '', 420);
-        if (!excerpt) {
-          return;
-        }
+        if (!excerpt) return;
 
-        const similarity = typeof chunk.similarity === 'number'
-          ? chunk.similarity
-          : typeof doc.relevanceScore === 'number'
+        const similarity =
+          typeof chunk.similarity === 'number'
+            ? chunk.similarity
+            : typeof doc.relevanceScore === 'number'
             ? doc.relevanceScore
             : 0;
 
@@ -605,10 +738,10 @@ ${formattedSnippets}
             vendorId: doc.vendorId || vendorId,
             chunkRange: {
               start: chunk.metadata?.startIndex ?? null,
-              end: chunk.metadata?.endIndex ?? null
+              end: chunk.metadata?.endIndex ?? null,
             },
-            fileName: doc.fileName || null
-          }
+            fileName: doc.fileName || null,
+          },
         });
       });
     });
@@ -621,19 +754,11 @@ ${formattedSnippets}
     return ordered;
   }
 
-  /**
-   * Extrae información resumida de las fuentes RAG
-   * @param {Array} snippets - Fragmentos utilizados en la respuesta
-   * @returns {Array}
-   */
   extractRagSources(snippets = []) {
-    if (!Array.isArray(snippets) || snippets.length === 0) {
-      return [];
-    }
-
+    if (!Array.isArray(snippets) || snippets.length === 0) return [];
     const sourcesMap = new Map();
 
-    snippets.forEach(snippet => {
+    snippets.forEach((snippet) => {
       const key = snippet.documentId || `${snippet.title}-${snippet.source}`;
 
       if (!sourcesMap.has(key)) {
@@ -644,13 +769,16 @@ ${formattedSnippets}
           similarity: snippet.similarity,
           metadata: {
             ...snippet.metadata,
-            snippetIndexes: [snippet.index]
-          }
+            snippetIndexes: [snippet.index],
+          },
         });
       } else {
         const existing = sourcesMap.get(key);
         existing.similarity = Math.max(existing.similarity || 0, snippet.similarity || 0);
-        if (existing.metadata?.snippetIndexes && !existing.metadata.snippetIndexes.includes(snippet.index)) {
+        if (
+          existing.metadata?.snippetIndexes &&
+          !existing.metadata.snippetIndexes.includes(snippet.index)
+        ) {
           existing.metadata.snippetIndexes.push(snippet.index);
         }
       }
@@ -658,63 +786,53 @@ ${formattedSnippets}
 
     return Array.from(sourcesMap.values()).map((source, index) => ({
       ...source,
-      index: index + 1
+      index: index + 1,
     }));
   }
 
-  /**
-   * Recorta texto largo para mensajes de sistema
-   * @param {string} text - Texto original
-   * @param {number} length - Longitud máxima
-   * @returns {string}
-   */
+  // Utilidades varias
   truncateText(text, length = 420) {
     if (!text) return '';
     const trimmed = String(text).trim();
-    if (trimmed.length <= length) {
-      return trimmed;
-    }
+    if (trimmed.length <= length) return trimmed;
     return `${trimmed.substring(0, length).trim()}…`;
   }
 
-  /**
-   * Genera un resumen de productos para el contexto
-   * @param {Array} products - Array de productos
-   * @returns {string} - Resumen formateado
-   */
   generateProductsSummary(products) {
-    const categories = [...new Set(products.map(p => p.category))];
+    const categories = [...new Set(products.map((p) => p.category))];
     const categoryNames = {
-      'smartphone': 'Smartphones',
-      'laptop': 'Laptops/Computadoras',
-      'earphone': 'Audífonos/Earphones',
-      'headphone': 'Headphones/Auriculares',
-      'watch': 'Relojes Inteligentes',
-      'camera': 'Cámaras',
-      'accessories': 'Accesorios'
+      smartphone: 'Smartphones',
+      laptop: 'Laptops/Computadoras',
+      earphone: 'Audífonos/Earphones',
+      headphone: 'Headphones/Auriculares',
+      watch: 'Relojes Inteligentes',
+      camera: 'Cámaras',
+      accessories: 'Accesorios',
     };
 
-    const displayCategories = categories.map(cat => categoryNames[cat] || cat).join(', ');
-    const priceRange = products.length > 0 ? {
-      min: Math.min(...products.map(p => p.offerPrice)),
-      max: Math.max(...products.map(p => p.offerPrice))
-    } : null;
+    const displayCategories = categories.map((c) => categoryNames[c] || c).join(', ');
+    const prices = products
+      .map((p) => Number(p.offerPrice ?? p.price) || 0)
+      .filter((n) => n > 0);
+    const priceRange =
+      prices.length > 0 ? { min: Math.min(...prices), max: Math.max(...prices) } : null;
 
     let summary = `Tenemos ${products.length} productos disponibles en las siguientes categorías: ${displayCategories}.`;
-
     if (priceRange) {
       summary += ` Los precios varían desde Q${priceRange.min} hasta Q${priceRange.max}.`;
     }
 
-    // Agregar algunos productos destacados
     const featuredProducts = products.slice(0, 5);
     if (featuredProducts.length > 0) {
       summary += `\n\nPRODUCTOS DESTACADOS:`;
       featuredProducts.forEach((product, index) => {
         const categoryName = categoryNames[product.category] || product.category;
-        summary += `\n${index + 1}. ${product.name} (${categoryName}) - Q${product.offerPrice}`;
-        if (product.description.length <= 100) {
-          summary += ` - ${product.description}`;
+        const price = product.offerPrice ?? product.price ?? '—';
+        if (product?.name) {
+          summary += `\n${index + 1}. ${product.name} (${categoryName}) - Q${price}`;
+          if ((product.description || '').length <= 100 && product.description) {
+            summary += ` - ${product.description}`;
+          }
         }
       });
     }
@@ -722,16 +840,12 @@ ${formattedSnippets}
     return summary;
   }
 
-  /**
-   * Obtiene estadísticas del servicio de chat
-   * @returns {Promise<Object>} - Estadísticas de uso
-   */
   async getStats() {
     return {
       totalConversations: 0,
       activeConversations: 0,
       totalMessages: 0,
-      averageMessagesPerConversation: 0
+      averageMessagesPerConversation: 0,
     };
   }
 }
