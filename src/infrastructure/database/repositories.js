@@ -3,7 +3,7 @@ import { Product, User, Order, Address, HeaderSlider } from '@/src/domain/entiti
 import { IProductRepository, IUserRepository, IOrderRepository, IHeaderSliderRepository, IConversationRepository, IMessageRepository, IDocumentRepository, IChatSessionRepository, ITicketRepository } from '@/src/domain/repositories';
 
 // Modelos reales de infraestructura (los mismos que las entidades)
-import { Conversation, Message, Document, ChatSession, Ticket } from '@/src/domain/entities';
+import { Conversation, Message, Document, ChatSession, Ticket } from '@/src/infrastructure/database/models/index.js';
 
 export class ProductRepositoryImpl extends IProductRepository {
   async findById(id) {
@@ -83,6 +83,15 @@ export class ConversationRepositoryImpl extends IConversationRepository {
     if (filters.status) query.status = filters.status;
     if (filters.userId) query.userId = filters.userId;
     if (filters.assignedTo) query.assignedTo = filters.assignedTo;
+    if (filters.vendorId) query.vendorId = filters.vendorId;
+
+    if (filters.persistedOnly !== undefined) {
+      query.isPersisted = filters.persistedOnly;
+    }
+
+    if (filters.minMessageCount !== undefined) {
+      query.messageCount = { $gte: filters.minMessageCount };
+    }
 
     return await Conversation.find(query).sort({ updatedAt: -1 });
   }

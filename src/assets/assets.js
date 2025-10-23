@@ -4,6 +4,7 @@ import user_icon from "./user_icon.svg";
 import cart_icon from "./cart_icon.svg";
 import add_icon from "./add_icon.svg";
 import order_icon from "./order_icon.svg";
+import chat_icon from "./chat_icon.svg";
 import instagram_icon from "./instagram_icon.svg";
 import facebook_icon from "./facebook_icon.svg";
 import twitter_icon from "./twitter_icon.svg";
@@ -57,6 +58,7 @@ export const assets = {
   cart_icon,
   add_icon,
   order_icon,
+  chat_icon,
   instagram_icon,
   facebook_icon,
   twitter_icon,
