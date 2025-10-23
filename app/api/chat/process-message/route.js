@@ -3,6 +3,8 @@ import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
 import { getAuth } from '@clerk/nextjs/server';
 import { ChatService } from '@/src/infrastructure/openai/chatService';
+import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositories.js';
+import { RAGService } from '@/src/infrastructure/rag/ragService.js';
 import { productContextService } from '@/src/services/productContextService';
 import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 
@@ -67,6 +69,29 @@ export async function POST(request) {
       console.warn('⚠️ No se pudo obtener contexto de productos:', error.message);
     }
 
+    // Preparar contexto RAG del proveedor
+    const documentRepository = new DocumentRepositoryImpl();
+    const ragService = new RAGService(documentRepository);
+    let ragDocuments = [];
+    let ragMatches = [];
+
+    try {
+      ragDocuments = await documentRepository.findAll({
+        isActive: true,
+        vendorId: resolvedVendorId
+      });
+
+      if (ragDocuments.length > 0) {
+        await ragService.buildIndex(ragDocuments);
+        ragMatches = await ragService.search(message, 5);
+        console.log(`✅ Contexto RAG obtenido: ${ragMatches.length} coincidencias`);
+      } else {
+        console.log('⚠️ No se encontraron documentos RAG activos para el proveedor');
+      }
+    } catch (ragError) {
+      console.warn('⚠️ No se pudo preparar el contexto RAG:', ragError.message);
+    }
+
     // Crear servicio de chat
     const chatService = new ChatService(openaiApiKey);
     const persistenceService = new ConversationPersistenceService();
@@ -106,7 +131,13 @@ export async function POST(request) {
 
     const result = await chatService.processUserMessage(persistedConversationId, message, {
       userInfo: userContext,
-      ...productContext
+      ...productContext,
+      ragContext: {
+        vendorId: resolvedVendorId,
+        documents: ragDocuments,
+        matches: ragMatches,
+        service: ragService
+      }
     });
 
     console.log('Resultado del ChatService:', result);

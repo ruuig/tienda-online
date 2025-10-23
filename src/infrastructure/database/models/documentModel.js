@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 
 const documentSchema = new mongoose.Schema({
+  vendorId: {
+    type: String,
+    default: process.env.DEFAULT_VENDOR_ID || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor',
+    index: true
+  },
   title: {
     type: String,
     required: true,
@@ -71,6 +76,7 @@ const documentSchema = new mongoose.Schema({
 documentSchema.index({ type: 1, category: 1 });
 documentSchema.index({ title: 'text', content: 'text', tags: 'text' });
 documentSchema.index({ isActive: 1 });
+documentSchema.index({ vendorId: 1, isActive: 1 });
 
 const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
 
