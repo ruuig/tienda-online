@@ -4,7 +4,7 @@ const ticketSchema = new mongoose.Schema({
   conversationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Conversation',
-    required: true
+    default: null
   },
   userId: {
     type: String,
@@ -52,9 +52,35 @@ const ticketSchema = new mongoose.Schema({
     min: 1,
     max: 5 // Rating del usuario sobre la resolución
   },
+  messages: [{
+    sender: {
+      type: String,
+      enum: ['customer', 'admin', 'system'],
+      required: true
+    },
+    senderName: {
+      type: String,
+      default: null
+    },
+    senderEmail: {
+      type: String,
+      default: null
+    },
+    content: {
+      type: String,
+      required: true
+    },
+    sentAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   metadata: {
     source: String, // De dónde viene el ticket (chat, email, phone)
     channel: String, // Canal específico
+    senderName: String,
+    senderEmail: String,
+    subject: String,
     firstResponseTime: Date,
     resolutionTime: Date,
     reopenedCount: {
