@@ -24,6 +24,7 @@ const SideBar = () => {
         { name: 'Gestionar Slider', path: '/seller/slider-management', icon: assets.add_icon },
         { name: 'Códigos de Descuento', path: '/seller/discounts', icon: assets.add_icon },
         { name: 'Chats del Bot', path: '/seller/chat-sessions', icon: assets.chat_icon },
+        { name: 'Documentos del Chatbot', path: '/seller/documents', icon: assets.add_icon },
         { name: 'Ordenes', path: '/seller/orders', icon: assets.order_icon },
     ];
 
