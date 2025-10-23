@@ -35,8 +35,16 @@ export class ChatService {
     try {
       const { ragContext: incomingRagContext, ...baseContext } = context || {};
       const ragData = await this.prepareRagData(userMessage, incomingRagContext);
+      const baseProducts = Array.isArray(baseContext.products)
+        ? this.uniqueById(baseContext.products)
+        : [];
+
       const aiContext = {
         ...baseContext,
+        products: baseProducts,
+        productsSummary:
+          baseContext.productsSummary ||
+          (baseProducts.length ? this.generateProductsSummary(baseProducts) : baseContext.productsSummary),
         ragSnippets: ragData.snippets,
         ragSources: ragData.sources,
       };
@@ -50,6 +58,14 @@ export class ChatService {
       if (localMatches.length) {
         aiContext.products = this.uniqueById([...(localMatches || []), ...(aiContext.products || [])]);
         aiContext.productsSummary = this.generateProductsSummary(aiContext.products);
+      }
+
+      if (aiContext.products?.length) {
+        try {
+          await conversationalCartService.initialize(aiContext.products);
+        } catch (initError) {
+          console.warn('ChatService: No se pudo inicializar el servicio de carrito conversacional:', initError?.message);
+        }
       }
 
       console.log('ChatService: Clasificando intención...');
@@ -194,24 +210,6 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
       });
 
       console.log('ChatService: Respuesta generada:', response?.substring?.(0, 100));
-
-      // 5) Productos relacionados (texto + servicio) y memorizar
-      let relevantProducts = [];
-      try {
-        const textMatches = this.findProductsInText(userMessage, aiContext.products || []);
-        relevantProducts = this.uniqueById([...(textMatches || [])]);
-
-        if (
-          relevantProducts.length === 0 &&
-          (intent.intent === 'consulta_producto' ||
-            (userMessage || '').toLowerCase().includes('producto'))
-        ) {
-          const svcMatches = await conversationalCartService.searchProducts(userMessage, 3);
-          relevantProducts = this.uniqueById([...(svcMatches || [])]);
-        }
-      } catch (e) {
-        console.warn('ChatService: Error buscando productos relacionados:', e?.message);
-      }
 
       if (relevantProducts.length) this.rememberProducts(conversationId, relevantProducts, userMessage);
 
@@ -661,10 +659,30 @@ CONTEXTO DE LA TIENDA:
       const summary =
         context.productsSummary || this.generateProductsSummary(context.products);
 
+      const detailedList = context.products
+        .slice(0, 10)
+        .map((product, index) => {
+          const price = product.offerPrice ?? product.price ?? '—';
+          const availability =
+            product.inStock === false || product.stock === 0 || product.quantity === 0
+              ? 'Agotado'
+              : 'Disponible';
+          return `${index + 1}. ${product.name} — ${product.category} — Q${price} (${availability})`;
+        })
+        .join('\n');
+
       systemMessage += `
 
 📦 PRODUCTOS DISPONIBLES:
 ${summary}
+
+🚦 REGLA CRÍTICA DE PRODUCTOS:
+- Solo puedes mencionar los productos listados a continuación.
+- Si el cliente pide alternativas, utiliza únicamente estos productos.
+- Si ningún producto coincide, ofrece buscar con un agente humano.
+
+📋 LISTA DE PRODUCTOS FILTRADOS PARA ESTA CONSULTA:
+${detailedList}
 
 🎯 CUANDO UN CLIENTE PREGUNTA POR PRODUCTOS:
 - Menciona el nombre exacto del producto
