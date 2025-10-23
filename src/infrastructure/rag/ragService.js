@@ -1,52 +1,346 @@
-// Sistema RAG (Retrieval-Augmented Generation) básico
-// Esta implementación puede ser extendida con LangChain + FAISS después
+// Sistema RAG (Retrieval-Augmented Generation) con persistencia de índice
 
 export class RAGService {
-  constructor(documentRepository) {
+  constructor(documentRepository, options = {}) {
     this.documentRepository = documentRepository;
-    this.vectorStore = new Map(); // Para desarrollo - usar FAISS en producción
-    this.embeddings = new Map(); // Para desarrollo - usar modelo de embeddings en producción
+    this.options = {
+      chunkSize: options.chunkSize || 500,
+      minSimilarity: options.minSimilarity ?? 0.1,
+    };
+
+    this.defaultVendorId =
+      options.defaultVendorId ||
+      process.env.DEFAULT_VENDOR_ID ||
+      process.env.NEXT_PUBLIC_VENDOR_ID ||
+      'default_vendor';
+
+    this.indices = new Map();
+    this.vectorStore = new Map();
+    this.embeddings = new Map();
+  }
+
+  static chunkText(text, chunkSize = 500, overlap = 0) {
+    if (!text || typeof text !== 'string') {
+      return [];
+    }
+
+    const sanitizedOverlap = Math.max(0, Math.min(overlap, chunkSize - 1));
+    const chunks = [];
+    let start = 0;
+
+    while (start < text.length) {
+      const end = Math.min(start + chunkSize, text.length);
+      const segment = text.slice(start, end);
+      chunks.push({
+        content: segment.trim(),
+        chunkIndex: chunks.length,
+        tokenCount: segment.length,
+        startIndex: start,
+        endIndex: end,
+      });
+      if (end === text.length) break;
+      start = end - sanitizedOverlap;
+    }
+
+    return chunks.filter(chunk => !!chunk.content);
+  }
+
+  getVendorKey(vendorId = null) {
+    return vendorId || this.defaultVendorId || 'default_vendor';
+  }
+
+  createEmptyIndex(vendorKey) {
+    return {
+      vendorId: vendorKey,
+      vectorStore: new Map(),
+      embeddings: new Map(),
+      documents: new Map(),
+      chunkCount: 0,
+      documentCount: 0,
+      loaded: false,
+      lastUpdated: null,
+    };
+  }
+
+  documentToPlain(document) {
+    if (!document) return document;
+    if (typeof document.toObject === 'function') {
+      return document.toObject({ depopulate: true, versionKey: false });
+    }
+    if (document instanceof Map) {
+      return Object.fromEntries(document.entries());
+    }
+    if (typeof document === 'object') {
+      return JSON.parse(JSON.stringify(document));
+    }
+    return document;
+  }
+
+  normalizeEmbedding(rawEmbedding) {
+    if (!rawEmbedding) return [];
+    if (Array.isArray(rawEmbedding)) return rawEmbedding;
+    if (typeof rawEmbedding === 'object' && Array.isArray(rawEmbedding.values)) {
+      return rawEmbedding.values;
+    }
+    return [];
+  }
+
+  documentNeedsReindex(document) {
+    if (!document) return true;
+    const chunks = Array.isArray(document.chunks) ? document.chunks : [];
+    if (chunks.length === 0) return true;
+
+    const hasEmbeddings = chunks.every(chunk => {
+      const embedding = this.normalizeEmbedding(chunk.embedding);
+      return Array.isArray(embedding) && embedding.length > 0;
+    });
+
+    if (!hasEmbeddings) return true;
+
+    if (document.lastIndexed && document.updatedAt) {
+      const updatedAt = new Date(document.updatedAt).getTime();
+      const lastIndexed = new Date(document.lastIndexed).getTime();
+
+      if (!Number.isNaN(updatedAt) && !Number.isNaN(lastIndexed)) {
+        if (updatedAt - lastIndexed > 500) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  replaceIndexForVendor(documents, vendorKey) {
+    const index = this.createEmptyIndex(vendorKey);
+
+    documents.forEach(doc => this.addDocumentToIndex(index, doc));
+
+    index.loaded = true;
+    index.lastUpdated = new Date();
+    index.chunkCount = index.embeddings.size;
+    index.documentCount = index.documents.size;
+
+    this.indices.set(vendorKey, index);
+
+    if (vendorKey === this.getVendorKey()) {
+      this.vectorStore = index.vectorStore;
+      this.embeddings = index.embeddings;
+    }
+
+    return index;
+  }
+
+  upsertDocumentsIntoIndex(documents, vendorKey) {
+    const existingIndex = this.indices.get(vendorKey) || this.createEmptyIndex(vendorKey);
+
+    documents.forEach(doc => this.addDocumentToIndex(existingIndex, doc));
+
+    existingIndex.loaded = true;
+    existingIndex.lastUpdated = new Date();
+    existingIndex.chunkCount = existingIndex.embeddings.size;
+    existingIndex.documentCount = existingIndex.documents.size;
+
+    this.indices.set(vendorKey, existingIndex);
+
+    if (vendorKey === this.getVendorKey()) {
+      this.vectorStore = existingIndex.vectorStore;
+      this.embeddings = existingIndex.embeddings;
+    }
+
+    return existingIndex;
+  }
+
+  addDocumentToIndex(index, rawDocument) {
+    if (!rawDocument) return;
+
+    const document = this.documentToPlain(rawDocument);
+    const docId = (document._id || document.id || '').toString();
+    if (!docId) return;
+
+    const existing = index.documents.get(docId);
+    if (existing) {
+      existing.chunks?.forEach(chunk => {
+        index.vectorStore.delete(chunk.id);
+        index.embeddings.delete(chunk.id);
+      });
+    }
+
+    const chunks = Array.isArray(document.chunks) ? document.chunks : [];
+    const chunkEntries = chunks.map((chunk, idx) => {
+      const chunkId = `${docId}_${idx}`;
+      const content = chunk.content || chunk.chunkText || '';
+      const embedding = this.normalizeEmbedding(chunk.embedding);
+      const startIndex = chunk.startIndex ?? idx * this.options.chunkSize;
+      const endIndex = chunk.endIndex ?? startIndex + content.length;
+
+      const entry = {
+        id: chunkId,
+        content,
+        documentId: docId,
+        documentTitle: document.title,
+        metadata: {
+          type: document.type,
+          category: document.category,
+          startIndex,
+          endIndex,
+        },
+      };
+
+      index.vectorStore.set(chunkId, entry);
+
+      if (embedding.length > 0) {
+        index.embeddings.set(chunkId, embedding);
+      }
+
+      return {
+        ...entry,
+        embedding,
+      };
+    });
+
+    index.documents.set(docId, {
+      _id: docId,
+      id: docId,
+      title: document.title,
+      type: document.type,
+      category: document.category,
+      metadata: document.metadata || {},
+      content: document.content || document.contentText || '',
+      relevanceScore: 0,
+      chunks: chunkEntries,
+      vendorId: document.vendorId || null,
+      lastIndexed: document.lastIndexed || null,
+    });
+  }
+
+  async ensureIndexLoaded({ vendorId = null, force = false } = {}) {
+    const vendorKey = this.getVendorKey(vendorId);
+    const existing = this.indices.get(vendorKey);
+
+    if (!force && existing?.loaded) {
+      return existing;
+    }
+
+    if (!this.documentRepository || typeof this.documentRepository.findAll !== 'function') {
+      return existing || this.createEmptyIndex(vendorKey);
+    }
+
+    const filters = { isActive: true };
+    if (vendorId) {
+      filters.vendorId = vendorId;
+    }
+
+    const repositoryDocuments = await this.documentRepository.findAll(filters);
+    const plainDocuments = repositoryDocuments.map(doc => this.documentToPlain(doc));
+
+    if (force) {
+      await this.buildIndex(plainDocuments, {
+        vendorId,
+        replaceExisting: true,
+      });
+      return this.indices.get(vendorKey);
+    }
+
+    const readyDocuments = [];
+    const documentsToReindex = [];
+
+    plainDocuments.forEach(document => {
+      if (this.documentNeedsReindex(document)) {
+        documentsToReindex.push(document);
+      } else {
+        readyDocuments.push(document);
+      }
+    });
+
+    if (documentsToReindex.length > 0) {
+      const indexedDocuments = await this.buildIndex(documentsToReindex, {
+        vendorId,
+        replaceExisting: false,
+        updateMemory: false,
+      });
+      readyDocuments.push(...indexedDocuments);
+    }
+
+    return this.replaceIndexForVendor(readyDocuments, vendorKey);
   }
 
   /**
    * Procesa documentos y crea índice de búsqueda
    * @param {Array} documents - Array de documentos a procesar
    */
-  async buildIndex(documents) {
+  async buildIndex(documents, options = {}) {
     try {
-      console.log(`Construyendo índice RAG con ${documents.length} documentos...`);
-
-      for (const doc of documents) {
-        // Dividir documento en chunks (simplificado)
-        const chunks = this.splitIntoChunks(doc.content, 500);
-
-        for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-
-          // Crear embedding básico (simplificado - usar modelo real en producción)
-          const embedding = await this.generateEmbedding(chunk);
-
-          // Almacenar en vector store
-          const chunkId = `${doc._id}_${i}`;
-          this.vectorStore.set(chunkId, {
-            id: chunkId,
-            content: chunk,
-            documentId: doc._id,
-            documentTitle: doc.title,
-            metadata: {
-              type: doc.type,
-              category: doc.category,
-              startIndex: i * 500,
-              endIndex: (i * 500) + chunk.length
-            }
-          });
-
-          this.embeddings.set(chunkId, embedding);
-        }
+      if (!Array.isArray(documents) || documents.length === 0) {
+        return [];
       }
 
-      console.log(`✅ Índice RAG construido. Total chunks: ${this.vectorStore.size}`);
+      const vendorId = options.vendorId || documents[0]?.vendorId || null;
+      const vendorKey = this.getVendorKey(vendorId);
+      const chunkSize = options.chunkSize || this.options.chunkSize;
+      const processedDocuments = [];
 
+      console.log(`Construyendo índice RAG con ${documents.length} documentos...`);
+
+      for (const rawDocument of documents) {
+        const document = this.documentToPlain(rawDocument);
+        const docId = document._id || document.id;
+        if (!docId) continue;
+
+        const content = document.content || document.contentText || '';
+        if (!content) continue;
+
+        const chunkTexts = this.splitIntoChunks(content, chunkSize);
+        const indexedAt = new Date();
+        const chunkRecords = [];
+
+        for (let i = 0; i < chunkTexts.length; i++) {
+          const chunk = chunkTexts[i];
+          const embedding = await this.generateEmbedding(chunk);
+          const startIndex = i * chunkSize;
+          const endIndex = startIndex + chunk.length;
+
+          chunkRecords.push({
+            content: chunk,
+            embedding,
+            startIndex,
+            endIndex,
+          });
+        }
+
+        if (this.documentRepository && typeof this.documentRepository.update === 'function') {
+          await this.documentRepository.update(docId, {
+            chunks: chunkRecords.map(({ content, embedding, startIndex, endIndex }) => ({
+              content,
+              embedding,
+              startIndex,
+              endIndex,
+            })),
+            lastIndexed: indexedAt,
+          });
+        }
+
+        processedDocuments.push({
+          ...document,
+          chunks: chunkRecords,
+          lastIndexed: indexedAt,
+        });
+      }
+
+      if (options.updateMemory === false) {
+        return processedDocuments;
+      }
+
+      if (options.replaceExisting) {
+        this.replaceIndexForVendor(processedDocuments, vendorKey);
+      } else {
+        this.upsertDocumentsIntoIndex(processedDocuments, vendorKey);
+      }
+
+      const index = this.indices.get(vendorKey);
+      console.log(`✅ Índice RAG actualizado. Total chunks: ${index?.chunkCount || 0}`);
+
+      return processedDocuments;
     } catch (error) {
       console.error('Error construyendo índice RAG:', error);
       throw error;
@@ -56,36 +350,54 @@ export class RAGService {
   /**
    * Busca información relevante para una consulta
    * @param {string} query - Consulta del usuario
-   * @param {number} limit - Número máximo de resultados
+   * @param {number|Object} limitOrOptions - Opciones de búsqueda
    * @returns {Promise<Array>} - Documentos relevantes ordenados por similitud
    */
-  async search(query, limit = 3) {
+  async search(query, limitOrOptions = {}) {
     try {
-      // Generar embedding de la consulta
+      let limit = 3;
+      let vendorId = null;
+      let minSimilarity = this.options.minSimilarity;
+
+      if (typeof limitOrOptions === 'number') {
+        limit = limitOrOptions;
+      } else if (typeof limitOrOptions === 'object' && limitOrOptions !== null) {
+        limit = limitOrOptions.limit ?? limit;
+        vendorId = limitOrOptions.vendorId ?? null;
+        if (typeof limitOrOptions.minSimilarity === 'number') {
+          minSimilarity = limitOrOptions.minSimilarity;
+        }
+      }
+
+      const index = await this.ensureIndexLoaded({ vendorId });
+
+      if (!index || index.embeddings.size === 0) {
+        return [];
+      }
+
       const queryEmbedding = await this.generateEmbedding(query);
 
-      // Calcular similitud con todos los chunks
       const similarities = [];
 
-      for (const [chunkId, chunkEmbedding] of this.embeddings.entries()) {
+      for (const [chunkId, chunkEmbedding] of index.embeddings.entries()) {
         const similarity = this.cosineSimilarity(queryEmbedding, chunkEmbedding);
 
-        if (similarity > 0.1) { // Umbral mínimo de similitud
+        if (similarity >= minSimilarity) {
+          const chunkInfo = index.vectorStore.get(chunkId);
+          if (!chunkInfo) continue;
           similarities.push({
             chunkId,
             similarity,
-            ...this.vectorStore.get(chunkId)
+            ...chunkInfo,
           });
         }
       }
 
-      // Ordenar por similitud y limitar resultados
       const results = similarities
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
 
-      // Convertir a formato de documentos únicos
-      const uniqueDocuments = this.deduplicateDocuments(results);
+      const uniqueDocuments = this.deduplicateDocuments(results, index);
 
       return uniqueDocuments;
 
@@ -101,9 +413,9 @@ export class RAGService {
    * @param {number} chunkSize - Tamaño de cada chunk
    * @returns {Array} - Array de chunks
    */
-  splitIntoChunks(text, chunkSize = 500) {
+  splitIntoChunks(text, chunkSize = this.options.chunkSize) {
     const chunks = [];
-    const sentences = text.split(/[.!?]+/); // Dividir por oraciones
+    const sentences = text.split(/[.!?]+/);
 
     let currentChunk = '';
 
@@ -112,16 +424,14 @@ export class RAGService {
 
       if (!trimmedSentence) continue;
 
-      // Si agregar esta oración excede el límite, crear nuevo chunk
       if ((currentChunk + trimmedSentence).length > chunkSize && currentChunk) {
         chunks.push(currentChunk.trim());
-        currentChunk = trimmedSentence + '. ';
+        currentChunk = `${trimmedSentence}. `;
       } else {
-        currentChunk += trimmedSentence + '. ';
+        currentChunk += `${trimmedSentence}. `;
       }
     }
 
-    // Agregar último chunk si existe
     if (currentChunk.trim()) {
       chunks.push(currentChunk.trim());
     }
@@ -136,27 +446,21 @@ export class RAGService {
    * @returns {Promise<Array>} - Vector de embedding
    */
   async generateEmbedding(text) {
-    // Implementación simplificada para desarrollo
-    // En producción: return await openai.embeddings.create({ input: text, model: "text-embedding-ada-002" })
-
     const words = text.toLowerCase().split(/\s+/);
     const wordFreq = {};
 
-    // Contar frecuencia de palabras (simulación básica de embedding)
     words.forEach(word => {
-      if (word.length > 2) { // Ignorar palabras muy cortas
+      if (word.length > 2) {
         wordFreq[word] = (wordFreq[word] || 0) + 1;
       }
     });
 
-    // Crear vector de características básicas
     const embedding = new Array(100).fill(0);
 
-    Object.entries(wordFreq).forEach(([word, freq], index) => {
-      // Hash simple para asignar posición en el vector
+    Object.entries(wordFreq).forEach(([word, freq]) => {
       const hash = this.simpleHash(word);
       const position = hash % embedding.length;
-      embedding[position] = Math.min(freq / 10, 1); // Normalizar
+      embedding[position] = Math.min(freq / 10, 1);
     });
 
     return embedding;
@@ -193,15 +497,17 @@ export class RAGService {
   /**
    * Elimina documentos duplicados manteniendo el más relevante
    * @param {Array} results - Resultados de búsqueda
+   * @param {Object} index - Índice del proveedor
    * @returns {Array} - Documentos únicos
    */
-  deduplicateDocuments(results) {
+  deduplicateDocuments(results, index) {
     const uniqueDocs = new Map();
 
     results.forEach(result => {
       const docId = result.documentId;
 
       if (!uniqueDocs.has(docId)) {
+        const storedDoc = index.documents.get(docId) || {};
         uniqueDocs.set(docId, {
           _id: docId,
           title: result.documentTitle,
@@ -209,10 +515,11 @@ export class RAGService {
           category: result.metadata.category,
           content: result.content,
           relevanceScore: result.similarity,
-          chunks: [result]
+          metadata: storedDoc.metadata || {},
+          vendorId: storedDoc.vendorId || null,
+          chunks: [result],
         });
       } else {
-        // Agregar chunk al documento existente si es más relevante
         const existing = uniqueDocs.get(docId);
         if (result.similarity > existing.relevanceScore) {
           existing.relevanceScore = result.similarity;
@@ -234,30 +541,50 @@ export class RAGService {
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
       hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convertir a 32-bit
+      hash = hash & hash;
     }
     return Math.abs(hash);
   }
 
   /**
    * Reconstruye índice desde documentos en BD
-   * @returns {Promise<void>}
+   * @returns {Promise<Object>}
    */
-  async rebuildIndex() {
+  async rebuildIndex(options = {}) {
     try {
-      const documents = await this.documentRepository.findAll({ isActive: true });
+      if (!this.documentRepository || typeof this.documentRepository.findAll !== 'function') {
+        return { documentsIndexed: 0, chunksIndexed: 0 };
+      }
+
+      const { vendorId = null } = options;
+      const filters = { isActive: true };
+      if (vendorId) {
+        filters.vendorId = vendorId;
+      }
+
+      const documents = await this.documentRepository.findAll(filters);
 
       if (documents.length === 0) {
         console.log('⚠️ No hay documentos activos para construir índice RAG');
-        return;
+        const vendorKey = this.getVendorKey(vendorId);
+        this.indices.set(vendorKey, this.createEmptyIndex(vendorKey));
+        return { documentsIndexed: 0, chunksIndexed: 0 };
       }
 
-      // Limpiar índice actual
-      this.vectorStore.clear();
-      this.embeddings.clear();
+      const processed = await this.buildIndex(documents, {
+        vendorId,
+        replaceExisting: true,
+      });
 
-      // Construir nuevo índice
-      await this.buildIndex(documents);
+      const chunkCount = processed.reduce((total, doc) => {
+        const docChunks = Array.isArray(doc.chunks) ? doc.chunks.length : 0;
+        return total + docChunks;
+      }, 0);
+
+      return {
+        documentsIndexed: processed.length,
+        chunksIndexed: chunkCount,
+      };
 
     } catch (error) {
       console.error('Error reconstruyendo índice RAG:', error);
@@ -269,17 +596,58 @@ export class RAGService {
    * Obtiene estadísticas del sistema RAG
    * @returns {Object} - Estadísticas del índice
    */
-  getStats() {
+  getStats(options = {}) {
+    const vendorKey = this.getVendorKey(options.vendorId);
+    const index = this.indices.get(vendorKey);
+
+    if (!index) {
+      return {
+        vendorId: vendorKey,
+        totalDocuments: 0,
+        indexedChunks: 0,
+        memoryUsage: '0 KB',
+        lastUpdate: null,
+        isLoaded: false,
+        persisted: true,
+      };
+    }
+
     return {
-      totalDocuments: this.vectorStore.size,
-      indexedChunks: this.vectorStore.size,
-      memoryUsage: `${Math.round((JSON.stringify([...this.vectorStore.values()]).length / 1024))} KB`,
-      lastUpdate: new Date().toISOString()
+      vendorId: vendorKey,
+      totalDocuments: index.documentCount,
+      indexedChunks: index.chunkCount,
+      memoryUsage: `${Math.round((JSON.stringify([...index.vectorStore.values()]).length / 1024))} KB`,
+      lastUpdate: index.lastUpdated ? index.lastUpdated.toISOString() : null,
+      isLoaded: !!index.loaded,
+      persisted: true,
     };
+  }
+
+  getIndexedDocuments(vendorId = null) {
+    const vendorKey = this.getVendorKey(vendorId);
+    const index = this.indices.get(vendorKey);
+
+    if (!index) return [];
+
+    return Array.from(index.documents.values()).map(document => ({
+      _id: document._id,
+      id: document.id,
+      title: document.title,
+      type: document.type,
+      category: document.category,
+      metadata: document.metadata,
+      vendorId: document.vendorId,
+      content: document.content,
+      chunks: (document.chunks || []).map(chunk => ({
+        content: chunk.content,
+        metadata: chunk.metadata,
+        embedding: chunk.embedding,
+      })),
+    }));
   }
 }
 
 // Factory function para crear servicio RAG
-export const createRAGService = (documentRepository) => {
-  return new RAGService(documentRepository);
+export const createRAGService = (documentRepository, options = {}) => {
+  return new RAGService(documentRepository, options);
 };
