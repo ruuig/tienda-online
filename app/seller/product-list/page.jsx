@@ -315,7 +315,7 @@ const ProductList = () => {
           productsCount={filteredProducts.length}
         />
 
-        <div className="flex flex-col items-center max-w-7xl w-full overflow-hidden rounded-md bg-white border border-gray-500/20">
+        
           <table className="table-auto w-full overflow-hidden">
             <thead className="text-gray-900 text-sm text-left">
               <tr>
@@ -431,7 +431,7 @@ const ProductList = () => {
               )}
             </tbody>
           </table>
-        </div>
+        
       </div>}
     </div>
   );
