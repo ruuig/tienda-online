@@ -315,11 +315,11 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
       .slice(-this.maxHistoryMessages);
   }
 
-  buildOpenAiMessageArray(systemMessage, historyMessages = [], userMessage) {
+  buildOpenAiMessageArray(systemPrompt, historyMessages = [], userMessage) {
     const messages = [];
 
-    if (systemMessage) {
-      messages.push({ role: 'system', content: systemMessage });
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
     }
 
     if (Array.isArray(historyMessages) && historyMessages.length > 0) {
@@ -614,7 +614,7 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
    */
   getSystemMessage(context = {}) {
     const availabilityRule = context.availabilityRule || '';
-    let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
+    let systemPrompt = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
 
 RESTRICCIONES CRÍTICAS:
 - Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
@@ -671,7 +671,7 @@ CONTEXTO DE LA TIENDA:
         })
         .join('\n');
 
-      systemMessage += `
+      systemPrompt += `
 
 📦 PRODUCTOS DISPONIBLES:
 ${summary}
@@ -708,7 +708,7 @@ ${detailedList}
         })
         .join('\n\n');
 
-      systemMessage += `
+      systemPrompt += `
 
 📚 DOCUMENTOS DE REFERENCIA DISPONIBLES:
 ${formattedSnippets}
@@ -719,7 +719,7 @@ ${formattedSnippets}
 - Si la respuesta no está en los documentos, indícalo y ofrece escalar a un agente humano.`;
     }
 
-    return systemMessage;
+    return systemPrompt;
   }
 
   // ---------------- RAG helpers ----------------

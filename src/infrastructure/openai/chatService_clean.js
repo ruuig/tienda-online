@@ -58,9 +58,9 @@ export class ChatService {
       }
 
       // 3. Si no es compra, generar respuesta normal con OpenAI
-      const systemMessage = this.getSystemMessage(context);
+      const systemPrompt = this.getSystemMessage(context);
       const messages = [
-        { role: 'system', content: systemMessage },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage }
       ];
 
@@ -215,7 +215,7 @@ export class ChatService {
    * @returns {string} - Mensaje del sistema
    */
   getSystemMessage(context = {}) {
-    let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
+    let systemPrompt = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
 
 ESTOY AQUÍ PARA AYUDARTE:
 - Te ayudo a encontrar productos perfectos para ti
@@ -254,7 +254,7 @@ CONTEXTO DE LA TIENDA:
     if (context.products && context.products.length > 0) {
       const summary = context.productsSummary || this.generateProductsSummary(context.products);
 
-      systemMessage += `
+      systemPrompt += `
 
 📦 PRODUCTOS DISPONIBLES:
 ${summary}
@@ -275,7 +275,7 @@ ${summary}
 ¡Recuerda ser siempre positivo y útil! 😄`;
     }
 
-    return systemMessage;
+    return systemPrompt;
   }
 
   /**
