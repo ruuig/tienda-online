@@ -233,7 +233,7 @@ const Contact = () => {
               </div>
 
               {/* Mapa Leaflet */}
-              <div className="mt-8">
+              <div className="mt-8 relative z-0">
                 <h3 className="text-xl font-bold text-gray-800 mb-4">Ubicación</h3>
                 <div id="map" className="bg-gray-200 rounded-lg" style={{ height: 192 }}></div>
               </div>
