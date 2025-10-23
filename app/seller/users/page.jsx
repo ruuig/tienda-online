@@ -7,7 +7,8 @@ export default function SellerUsersPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [savingUserId, setSavingUserId] = useState(null) // 🔒 deshabilitar select mientras guarda
+  const [roleFilter, setRoleFilter] = useState('all') // all | seller | user
+  const [savingUserId, setSavingUserId] = useState(null)
 
   const refresh = async () => {
     try {
@@ -28,7 +29,6 @@ export default function SellerUsersPage() {
   }, [])
 
   const setRole = async (targetUserId, newRole) => {
-    // Estado previo para rollback
     const prevUsers = users
     // Optimistic UI
     setUsers(prev => prev.map(u => (u._id === targetUserId ? { ...u, role: newRole } : u)))
@@ -36,7 +36,6 @@ export default function SellerUsersPage() {
 
     const loadingId = toast.loading('Guardando cambios...')
 
-    // Intenta parsear JSON; si viene HTML, crea error legible
     const parseJSONorThrow = async (res) => {
       const raw = await res.text()
       try {
@@ -55,16 +54,19 @@ export default function SellerUsersPage() {
       })
 
       const data = await parseJSONorThrow(res)
-
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'No se pudo asignar el rol')
       }
 
       toast.dismiss(loadingId)
-      toast.success(`Rol actualizado a "${newRole}"`)
-      await refresh()
+      toast.success(`Rol actualizado a "${data.role || newRole}"`)
+
+      // Actualiza solo la fila afectada (evita refrescar todo si no quieres)
+      setUsers(prev => prev.map(u =>
+        u._id === targetUserId ? { ...u, role: data.role || newRole } : u
+      ))
     } catch (e) {
-      // Rollback + toast de error SIN icono
+      // Rollback + toast de error (sin icono)
       setUsers(prevUsers)
       toast.dismiss(loadingId)
       toast.error(e.message || 'No se pudo asignar el rol', { icon: null })
@@ -75,13 +77,18 @@ export default function SellerUsersPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return users
-    return users.filter(u =>
-      (u.name || '').toLowerCase().includes(q) ||
-      (u.email || '').toLowerCase().includes(q) ||
-      (u._id || '').toLowerCase().includes(q)
-    )
-  }, [users, search])
+    return users.filter(u => {
+      const matchesText =
+        !q ||
+        (u.name || '').toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q) ||
+        (u._id || '').toLowerCase().includes(q)
+      const role = (u.role || 'user').toLowerCase()
+      const matchesRole =
+        roleFilter === 'all' || role === roleFilter
+      return matchesText && matchesRole
+    })
+  }, [users, search, roleFilter])
 
   if (loading) {
     return (
@@ -106,15 +113,26 @@ export default function SellerUsersPage() {
         <p className="text-gray-600">Usuarios registrados en la plataforma</p>
       </div>
 
-      {/* Buscador */}
+      {/* Buscador + Filtro */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por nombre, email o ID..."
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
-        />
+        <div className="flex flex-col md:flex-row gap-3 md:items-center">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nombre, email o ID..."
+            className="w-full md:flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
+          />
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            className="w-full md:w-56 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-secondary-500 focus:border-transparent"
+          >
+            <option value="all">Todos los roles</option>
+            <option value="seller">Admin</option>
+            <option value="user">Usuario</option>
+          </select>
+        </div>
       </div>
 
       {/* Tabla */}
