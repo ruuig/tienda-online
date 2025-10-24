@@ -59,10 +59,10 @@ function getPerformanceMetrics() {
   };
 }
 
-// POST /api/chat/process-message - Procesar mensaje con IA
 export async function POST(request) {
   const startTime = Date.now();
 
+  try {
     console.log('=== NUEVA SOLICITUD DE CHAT ===');
 
     await connectDB();
@@ -450,86 +450,3 @@ async function searchProductsForMessage(userMessage, vendorId, limit = 8) {
 
 export { searchProductsForMessage, generateProductsSummary };
 
-function normalizeText(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase();
-}
-
-const CATEGORY_KEYWORDS = {
-  smartphone: ['smartphone', 'telefono', 'celular', 'iphone', 'android', 'galaxy'],
-  laptop: ['laptop', 'computadora', 'notebook', 'portatil', 'macbook'],
-  earphone: ['audifono', 'earphone', 'auricular', 'in-ear', 'earbud'],
-  headphone: ['headphone', 'auricular de diadema', 'over-ear', 'diadema'],
-  watch: ['reloj', 'smartwatch', 'watch', 'banda'],
-  camera: ['camara', 'camera', 'fotografica', 'dslr'],
-  accessories: ['accesorio', 'accesorios', 'cable', 'cargador', 'funda'],
-  tablet: ['tablet', 'ipad'],
-  console: ['consola', 'playstation', 'xbox', 'nintendo', 'switch'],
-  gaming: ['gaming', 'videojuego', 'juego'],
-  home: ['hogar', 'smart home', 'casa', 'iluminacion'],
-};
-
-function detectCategories(normalizedMessage) {
-  if (!normalizedMessage) return [];
-  const categories = [];
-  for (const [category, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
-    if (keywords.some((keyword) => normalizedMessage.includes(keyword))) {
-      categories.push(category);
-    }
-  }
-  return categories;
-}
-
-const STOP_WORDS = new Set([
-  'que',
-  'para',
-  'como',
-  'unos',
-  'unas',
-  'tengo',
-  'tienes',
-  'tienen',
-  'quiero',
-  'cuales',
-  'cual',
-  'hay',
-  'hola',
-  'buenos',
-  'dias',
-  'tardes',
-  'noches',
-  'sobre',
-  'del',
-  'los',
-  'las',
-  'una',
-  'por',
-  'mas',
-  'me',
-  'pueden',
-  'puedo',
-  'ver',
-  'informacion',
-  'buscar',
-  'buscando',
-  'disponibles',
-  'tienen',
-  'ofrecen',
-]);
-
-function extractSearchTokens(normalizedMessage) {
-  return Array.from(new Set(normalizedMessage.split(/[^a-z0-9]+/)))
-    .filter((token) => token.length >= 3 && !STOP_WORDS.has(token));
-}
-
-function buildSearchRegex(tokens) {
-  if (!tokens?.length) return null;
-  const pattern = tokens
-    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|');
-  return pattern ? new RegExp(pattern, 'i') : null;
-}
-
-export { searchProductsForMessage, generateProductsSummary };
