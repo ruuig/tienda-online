@@ -1,21 +1,27 @@
 import connectDB from '@/config/db'
-import Product from '@/models/Product'
+import { GetProductsUseCase } from '@/src/application/use-cases/productUseCases'
+import { ProductRepositoryImpl } from '@/src/infrastructure/database/repositories'
 import { NextResponse } from 'next/server'
 
 export async function GET(request) {
     try {
-
         await connectDB()
 
-        // Obtener productos ordenados por fecha (más recientes primero)
-        const products = await Product.find({}).sort({ date: -1 })
-        
+        // Usar caso de uso
+        const productRepository = new ProductRepositoryImpl()
+        const getProductsUseCase = new GetProductsUseCase(productRepository)
+        const result = await getProductsUseCase.execute()
+
+        if (!result.success) {
+            return NextResponse.json({ success: false, message: result.message })
+        }
+
         // Crear respuesta sin caché
-        const response = NextResponse.json({ success: true, products })
+        const response = NextResponse.json({ success: true, products: result.products })
         response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
         response.headers.set('Pragma', 'no-cache')
         response.headers.set('Expires', '0')
-        
+
         return response
 
     } catch (error) {

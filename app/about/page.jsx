@@ -1,8 +1,8 @@
 'use client'
 import React from 'react'
-import Navbar from '@/components/Navbar'
-import Footer from '@/components/Footer'
-import { assets } from '@/assets/assets'
+import Navbar from '@/src/presentation/components/Navbar'
+import Footer from '@/src/presentation/components/Footer'
+import { assets } from '@/src/assets/assets'
 import Image from 'next/image'
 
 const About = () => {
@@ -88,44 +88,65 @@ const About = () => {
             </div>
           </div>
 
-          {/* Team Section */}
-          <div className="bg-gray-50 rounded-lg p-8">
-            <h2 className="text-3xl font-bold text-gray-800 text-center mb-12">Nuestro Equipo</h2>
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="text-center">
-                <div className="w-24 h-24 bg-secondary-200 rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-secondary-700">R</span>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Rudy Eleazar Oloroso</h3>
-                <p className="text-secondary-600 mb-2">CEO & Founder</p>
-                <p className="text-gray-600 text-sm">
-                  Coordinador de la empresa y del grupo de trabajo.
-                </p>
-              </div>
+         {/* Team Section */}
+<div className="bg-gray-50 rounded-lg p-8">
+  <h2 className="text-3xl font-bold text-gray-800 text-center mb-12">Nuestro Equipo</h2>
 
-              <div className="text-center">
-                <div className="w-24 h-24 bg-secondary-200 rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-secondary-700">M</span>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Jan Carlos René Marcos</h3>
-                <p className="text-secondary-600 mb-2">Director de estrategia comercial </p>
-                <p className="text-gray-600 text-sm">
-                  Planificador de ventas, análisis del mercado y encargado de hacer tratos con proveedores.
-                </p>
-              </div>
+  <div className="grid md:grid-cols-3 gap-8">
+    {/* Rudy */}
+    <div className="text-center">
+      <div className="w-28 h-28 mx-auto mb-4 rounded-full overflow-hidden border-4 border-secondary-100">
+        <Image
+          src="/team/rudy.jpg"
+          alt="Rudy Eleazar Oloroso Gutierrez"
+          width={224} height={224}
+          className="w-full h-full object-cover"
+          priority
+        />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-800 mb-2">Rudy Eleazar Oloroso Gutierrez</h3>
+      <p className="text-secondary-600 mb-2">CEO & Founder</p>
+      <p className="text-gray-600 text-sm">
+        Coordinador de la empresa y del grupo de trabajo.
+      </p>
+    </div>
 
-              <div className="text-center">
-                <div className="w-24 h-24 bg-secondary-200 rounded-full mx-auto mb-4 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-secondary-700">C</span>
-                </div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Gerardo Waldemar García de Arriaga</h3>
-                <p className="text-secondary-600 mb-2">Director Técnico</p>
-                <p className="text-gray-600 text-sm">
-                  Encargado de desestrezar al equipo de trabajo a travez de actividades manuales y especialista en PN’s.
-                </p>
-              </div>
-            </div>
-          </div>
+    {/* Jan */}
+    <div className="text-center">
+      <div className="w-28 h-28 mx-auto mb-4 rounded-full overflow-hidden border-4 border-secondary-100">
+        <Image
+          src="/team/jan.jpg"
+          alt="Jan Carlos René Marcos"
+          width={224} height={224}
+          className="w-full h-full object-cover"
+        />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-800 mb-2">Jan Carlos René Marcos Marín</h3>
+      <p className="text-secondary-600 mb-2">Director de estrategia comercial</p>
+      <p className="text-gray-600 text-sm">
+        Planificador de ventas, análisis del mercado y encargado de hacer tratos con proveedores.
+      </p>
+    </div>
+
+    {/* Gerardo */}
+    <div className="text-center">
+      <div className="w-28 h-28 mx-auto mb-4 rounded-full overflow-hidden border-4 border-secondary-100">
+        <Image
+          src="/team/gerardo.jpg"
+          alt="Gerardo Waldemar García Vásquez"
+          width={224} height={224}
+          className="w-full h-full object-cover"
+        />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-800 mb-2">Gerardo Waldemar García Vásquez</h3>
+      <p className="text-secondary-600 mb-2">Director Técnico</p>
+      <p className="text-gray-600 text-sm">
+        Experto en tecnología e innovación, asegurando que ofrezcamos los últimos avances tecnológicos.
+      </p>
+    </div>
+  </div>
+</div>
+
         </div>
       </div>
       <Footer />

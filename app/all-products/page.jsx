@@ -1,22 +1,27 @@
 'use client'
 import React, { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'next/navigation'
-import ProductCard from "@/components/ProductCard";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
+import ProductCard from "@/src/presentation/components/ProductCard";
+import Navbar from "@/src/presentation/components/Navbar";
+import Footer from "@/src/presentation/components/Footer";
 import { useAppContext } from "@/context/AppContext";
 
 const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
-  const categories = [
-    'All',
-    'Earphone',
-    'Headphone',
-    'Watch',
-    'Smartphone',
-    'Laptop',
-    'Camera',
-    'Accessories'
-  ]
+  const categoryNames = {
+    'Accessories': 'Accesorios',
+    'Smartphone': 'Smartphones',
+    'Laptop': 'Computadoras',
+    'Earphone': 'Earphones',
+    'Headphone': 'Headphones',
+    'Watch': 'Relojes Inteligentes',
+    'Camera': 'Cámaras',
+    'Tablet': 'Tablets',
+    'Console': 'Consolas',
+    'Gaming': 'Juegos',
+    'Home': 'Hogar',
+  };
+
+  const categories = ['All', ...Object.keys(categoryNames)];
 
   const sortOptions = [
     { value: 'name-asc', label: 'Nombre A-Z' },
@@ -63,7 +68,7 @@ const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
           >
             {categories.map(category => (
               <option key={category} value={category}>
-                {category === 'All' ? 'Todas las categorías' : category}
+                {category === 'All' ? 'Todas las categorías' : categoryNames[category] || category}
               </option>
             ))}
           </select>

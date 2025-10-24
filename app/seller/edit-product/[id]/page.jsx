@@ -1,12 +1,12 @@
 'use client'
 import React, { useState, useEffect } from "react";
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { useParams } from "next/navigation";
-import Loading from "@/components/Loading";
+import Loading from "@/src/presentation/components/Loading";
 
 const EditProduct = () => {
 
@@ -222,13 +222,19 @@ const EditProduct = () => {
               onChange={(e) => setCategory(e.target.value)}
               value={category}
             >
-              <option value="Earphone">Audífonos</option>
-              <option value="Headphone">Auriculares</option>
-              <option value="Watch">Relojes</option>
-              <option value="Smartphone">Teléfonos</option>
-              <option value="Laptop">Laptops</option>
-              <option value="Camera">Cámaras</option>
+             
               <option value="Accessories">Accesorios</option>
+              <option value="Smartphone">Smartphones</option>
+              <option value="Laptop">Computadoras</option>
+              <option value="Earphone">Earphones</option>
+              <option value="Headphone">Headphones</option>
+              <option value="Watch">Relojes Inteligentes</option>
+              <option value="Camera">Cámaras</option>
+              <option value="Tablet">Tablets</option>
+              <option value="Console">Consolas</option>
+              <option value="Gaming">Juegos</option>
+              <option value="Home">Hogar</option>
+    
             </select>
           </div>
           <div className="flex flex-col gap-1 w-32">

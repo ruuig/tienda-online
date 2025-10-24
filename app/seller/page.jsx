@@ -1,6 +1,6 @@
 'use client'
 import React, { useState } from "react";
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
 import axios from "axios";
@@ -8,12 +8,46 @@ import toast from "react-hot-toast";
 
 const AddProduct = () => {
 
-  const { getToken, router } = useAppContext()
+  const { getToken, router, user } = useAppContext()
+
+  // Verificar que el usuario tenga permisos de vendedor
+  const userRole = user?.publicMetadata?.role || 'user';
+  if (userRole !== 'admin' && userRole !== 'seller') {
+    return (
+      <div className="flex-1 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Acceso Denegado</h1>
+          <p className="text-gray-600 mb-4">Solo los administradores y vendedores pueden agregar productos.</p>
+          <p className="text-sm text-gray-500">Tu rol actual: {userRole}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 px-4 py-2 bg-secondary-500 text-white rounded hover:bg-secondary-600 transition-colors"
+          >
+            Ir al Inicio
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const [files, setFiles] = useState([]);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Earphone');
+  const categoryNames = {
+    'smartphone': 'Smartphones',
+    'laptop': 'Computadoras',
+    'earphone': 'Earphones',
+    'headphone': 'Headphones',
+    'watch': 'Relojes Inteligentes',
+    'camera': 'Cámaras',
+    'accessories': 'Accesorios',
+    'tablet': 'Tablets',
+    'console': 'Consolas',
+    'gaming': 'Juegos',
+    'home': 'Hogar',
+  };
+
+  const [category, setCategory] = useState('earphone');
   const [price, setPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
 
@@ -43,7 +77,7 @@ const AddProduct = () => {
         setFiles([]);
         setName('');
         setDescription('');
-        setCategory('Earphone');
+        setCategory('earphone');
         setPrice('');
         setOfferPrice('');
         // Navegar a la lista y forzar recarga
@@ -128,17 +162,16 @@ const AddProduct = () => {
               id="category"
               className="outline-none md:py-2.5 py-2 px-3 rounded border border-gray-500/40"
               onChange={(e) => setCategory(e.target.value)}
-              defaultValue={category}
+              value={category}
             >
-              <option value="Earphone">Audífonos</option>
-              <option value="Headphone">Auriculares</option>
-              <option value="Watch">Relojes</option>
-              <option value="Smartphone">Teléfonos</option>
-              <option value="Laptop">Laptops</option>
-              <option value="Camera">Cámaras</option>
-              <option value="Accessories">Accesorios</option>
+              {Object.entries(categoryNames).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
+          
           <div className="flex flex-col gap-1 w-32">
             <label className="text-base font-medium" htmlFor="product-price">
               Precio

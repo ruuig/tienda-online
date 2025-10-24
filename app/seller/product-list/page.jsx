@@ -1,9 +1,9 @@
 'use client'
 import React, { useEffect, useState, useMemo } from "react";
-import { assets } from "@/assets/assets";
+import { assets } from "@/src/assets/assets";
 import Image from "next/image";
 import { useAppContext } from "@/context/AppContext";
-import Loading from "@/components/Loading";
+import Loading from "@/src/presentation/components/Loading";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { usePathname } from "next/navigation";
@@ -17,7 +17,11 @@ const ProductFilters = ({ filters, onFiltersChange, productsCount }) => {
     'Smartphone',
     'Laptop',
     'Camera',
-    'Accessories'
+    'Accessories',
+    'Tablet',
+    'Console',
+    'Gaming',
+    'Home'
   ]
 
   const sortOptions = [
@@ -126,6 +130,26 @@ const ProductList = () => {
 
   const { router, getToken, user } = useAppContext()
   const pathname = usePathname()
+
+  // Verificar que el usuario tenga permisos de vendedor
+  const userRole = user?.publicMetadata?.role || 'user';
+  if (userRole !== 'admin' && userRole !== 'seller') {
+    return (
+      <div className="flex-1 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Acceso Denegado</h1>
+          <p className="text-gray-600 mb-4">Solo los administradores y vendedores pueden ver productos.</p>
+          <p className="text-sm text-gray-500">Tu rol actual: {userRole}</p>
+          <button
+            onClick={() => router.push('/')}
+            className="mt-4 px-4 py-2 bg-secondary-500 text-white rounded hover:bg-secondary-600 transition-colors"
+          >
+            Ir al Inicio
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const [products, setProducts] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
@@ -311,7 +335,7 @@ const ProductList = () => {
           productsCount={filteredProducts.length}
         />
 
-        <div className="flex flex-col items-center max-w-7xl w-full overflow-hidden rounded-md bg-white border border-gray-500/20">
+        
           <table className="table-auto w-full overflow-hidden">
             <thead className="text-gray-900 text-sm text-left">
               <tr>
@@ -427,7 +451,6 @@ const ProductList = () => {
               )}
             </tbody>
           </table>
-        </div>
       </div>}
     </div>
   );
