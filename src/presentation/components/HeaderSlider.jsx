@@ -103,8 +103,11 @@ const HeaderSlider = () => {
   };
 
   const handleNavigate = (primaryLink, fallback = '/all-products') => {
-    const target = resolveLink(primaryLink) || fallback;
-    router.push(target);
+    if (!primaryLink) {
+      router.push(fallback);
+    } else {
+      router.push(resolveLink(primaryLink) || fallback);
+    }
   };
 
   if (loading || sliderData.length === 0) {
@@ -143,7 +146,7 @@ const HeaderSlider = () => {
               </h1>
               <div className="flex items-center mt-6 md:mt-8 gap-4">
                 <button
-                  onClick={() => handleNavigate(slide.buttonLink1, '/product')}
+                  onClick={() => {}}
                   className="px-10 py-3 bg-secondary-500 hover:bg-secondary-600 rounded-lg text-white font-medium transition-colors shadow-md hover:shadow-lg hover:shadow-secondary-100"
                 >
                   {slide.buttonText1}
