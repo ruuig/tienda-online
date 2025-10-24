@@ -1,4 +1,4 @@
-// Sistema RAG (Retrieval-Augmented Generation) con persistencia de índice
+                                                                                                                                                                                                            // Sistema RAG (Retrieval-Augmented Generation) con persistencia de índice
 
 export class RAGService {
   constructor(documentRepository, options = {}) {
@@ -266,7 +266,54 @@ export class RAGService {
   }
 
   /**
-   * Procesa documentos y crea índice de búsqueda
+   * Inicializa los servicios de embeddings y vectores (lazy loading)
+   */
+  async initializeServices() {
+    if (!this.embeddingsService) {
+      this.embeddingsService = new OpenAIEmbeddingsService();
+    }
+    if (!this.vectorRepository) {
+      this.vectorRepository = new MongoVectorRepository();
+    }
+  }
+
+  /**
+   * Genera hash de documentos para detectar cambios
+   * @param {Array} documents - Array de documentos
+   * @returns {string} - Hash único
+   */
+  generateDocumentsHash(documents) {
+    const content = documents.map(doc => `${doc._id}-${doc.updatedAt || doc.createdAt}-${doc.content.length}`).join('|');
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convertir a 32-bit
+    }
+    return hash.toString();
+  }
+
+  /**
+   * Verifica si el índice necesita reconstruirse
+   * @param {Array} documents - Documentos actuales
+   * @returns {boolean} - True si necesita rebuild
+   */
+  needsRebuild(documents) {
+    const now = Date.now();
+    const currentHash = this.generateDocumentsHash(documents);
+
+    // Verificar si el cache es válido
+    if (this.indexCache.hash === currentHash &&
+        this.indexCache.timestamp &&
+        (now - this.indexCache.timestamp) < this.indexCache.ttl) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Procesa documentos y crea índice de búsqueda (con base de datos real)
    * @param {Array} documents - Array de documentos a procesar
    */
   async buildIndex(documents, options = {}) {
@@ -348,7 +395,7 @@ export class RAGService {
   }
 
   /**
-   * Busca información relevante para una consulta
+   * Busca información relevante para una consulta (optimizada)
    * @param {string} query - Consulta del usuario
    * @param {number|Object} limitOrOptions - Opciones de búsqueda
    * @returns {Promise<Array>} - Documentos relevantes ordenados por similitud
@@ -408,6 +455,53 @@ export class RAGService {
   }
 
   /**
+   * Búsqueda simple por texto cuando no hay embeddings disponibles
+   * @param {string} query - Consulta del usuario
+   * @param {number} limit - Número máximo de resultados
+   * @returns {Array} - Documentos relevantes
+   */
+  simpleTextSearch(query, limit = 3) {
+    if (!this.indexCache.documents || this.indexCache.documents.length === 0) {
+      return [];
+    }
+
+    const lowerQuery = query.toLowerCase();
+    const scoredDocs = [];
+
+    for (const doc of this.indexCache.documents) {
+      const lowerContent = doc.content.toLowerCase();
+      let score = 0;
+
+      // Búsqueda por palabras clave
+      const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 2);
+      queryWords.forEach(word => {
+        if (lowerContent.includes(word)) {
+          score += 1;
+        }
+      });
+
+      if (score > 0) {
+        scoredDocs.push({
+          _id: doc._id,
+          title: doc.title,
+          type: doc.type,
+          category: doc.category,
+          content: doc.content,
+          relevanceScore: score / queryWords.length, // Normalizar por número de palabras
+          chunks: [{
+            content: doc.content.substring(0, 300),
+            similarity: score / queryWords.length
+          }]
+        });
+      }
+    }
+
+    return scoredDocs
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, limit);
+  }
+
+  /**
    * Divide texto en chunks de tamaño específico
    * @param {string} text - Texto a dividir
    * @param {number} chunkSize - Tamaño de cada chunk
@@ -440,8 +534,7 @@ export class RAGService {
   }
 
   /**
-   * Genera embedding vectorial básico (simplificado)
-   * En producción usar modelo de embeddings como OpenAI embeddings
+   * Genera embedding vectorial usando OpenAI
    * @param {string} text - Texto para generar embedding
    * @returns {Promise<Array>} - Vector de embedding
    */

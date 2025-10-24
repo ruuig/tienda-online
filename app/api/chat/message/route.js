@@ -1,17 +1,11 @@
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
 import { MessageRepositoryImpl } from '@/src/infrastructure/database/repositories';
-import { getAuthUser } from '@/lib/auth';
 
 // GET /api/chat/message?conversationId=123 - Obtener mensajes de una conversación
 export async function GET(request) {
   try {
     await connectDB();
-
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
 
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
@@ -45,11 +39,6 @@ export async function POST(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
-
     const { conversationId, content, type = 'text' } = await request.json();
 
     if (!conversationId || !content) {
@@ -61,16 +50,12 @@ export async function POST(request) {
 
     const messageRepository = new MessageRepositoryImpl();
 
-    const senderRole = user.role;
-    const sender = senderRole === 'admin' || senderRole === 'seller' ? 'admin' : 'user';
-
     const messageData = {
       conversationId,
       content,
-      sender,
+      sender: 'user',
       type,
-      createdAt: new Date(),
-      ...(sender === 'admin' ? { metadata: { adminId: user.id } } : {})
+      createdAt: new Date()
     };
 
     const message = await messageRepository.create(messageData);

@@ -1,6 +1,279 @@
-# Tienda Online – Guía Operativa y Técnica
+## 🚀 Sistema RAG Inteligente
 
-Esta aplicación Next.js implementa un flujo completo de comercio electrónico con un enfoque especial en la comunicación con clientes y la administración del panel de vendedores. Este documento reúne los puntos clave para configurar el entorno de correo SMTP, consumir los endpoints críticos y reproducir las pruebas manuales requeridas.
+**NUEVO**: Implementación completa de un sistema RAG (Retrieval-Augmented Generation) basado en el modelo Python original pero adaptado a Node.js con MongoDB.
+
+### **Características del Sistema RAG**
+
+#### **1. Búsqueda Inteligente Multi-Fuente**
+- **Primero**: Búsqueda en productos de la base de datos (más rápida)
+- **Segundo**: Búsqueda en documentos RAG subidos por vendedores
+- **Tercero**: Respuesta general si no hay contexto relevante
+
+#### **2. Procesamiento de Documentos**
+- **Formatos soportados**: PDF, texto plano
+- **Chunking automático**: Divide documentos en fragmentos de 1200 caracteres
+- **Embeddings vectoriales**: OpenAI text-embedding-3-small
+- **Búsqueda por similitud**: Coseno similarity para encontrar información relevante
+
+#### **3. Streaming en Tiempo Real**
+- **Respuestas inmediatas**: Streaming de tokens desde OpenAI
+- **Indicadores visuales**: Muestra cuando se está generando respuesta
+- **Fallback automático**: Si falla RAG, usa productos o respuesta general
+
+### **Endpoints RAG**
+
+#### **POST `/api/rag/documents`**
+Subir documentos para procesamiento RAG:
+```json
+{
+  "title": "Políticas de la tienda",
+  "file": "file.pdf"
+}
+```
+
+#### **GET `/api/rag/documents`**
+Listar documentos disponibles:
+```json
+{
+  "success": true,
+  "documents": [
+    {
+      "id": "doc_123",
+      "title": "Políticas de la tienda",
+      "filename": "politicas.pdf",
+      "fileSize": 2048000,
+      "createdAt": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+#### **POST `/api/chat/stream`**
+Chat con streaming RAG:
+```json
+{
+  "message": "¿Cuál es la política de devoluciones?",
+  "conversationId": "conv_123",
+  "vendorId": "vendor_456"
+}
+```
+
+#### **GET `/api/rag/health`**
+Health check del sistema RAG:
+```json
+{
+  "success": true,
+  "status": {
+    "database": "connected",
+    "openai": "configured",
+    "collections": {
+      "rag_documents": true,
+      "rag_document_chunks": true,
+      "rag_document_embeddings": true
+    },
+    "counts": {
+      "documents": 5,
+      "chunks": 150,
+      "embeddings": 150
+    }
+  },
+  "optimizations": {
+    "model": "gpt-3.5-turbo",
+    "embeddings": "text-embedding-3-small",
+    "streaming": "enabled",
+    "productIntegration": "enabled"
+  }
+}
+```
+
+### **Panel de Administración RAG**
+
+#### **`/rag-admin`**
+- Subir documentos PDF o texto
+- Ver documentos procesados
+- Gestionar documentos por vendor
+- Monitor de estado del sistema
+
+#### **`/rag-demo`**
+- Demo completa del sistema RAG
+- Chat de prueba con streaming
+- Subida de documentos de prueba
+- Indicadores de performance en tiempo real
+
+### **Flujo de Funcionamiento**
+
+#### **1. Usuario pregunta por productos**
+```
+Usuario: "¿Tienen productos de Apple?"
+↓
+1. Buscar en DB productos → Encontrar iPhone, MacBook, iPad
+2. Generar respuesta con contexto de productos
+3. Mostrar productos con precios y opciones de compra
+```
+
+#### **2. Usuario pregunta por políticas**
+```
+Usuario: "¿Cómo funciona la garantía?"
+↓
+1. Buscar en productos → No relevante
+2. Buscar en documentos RAG → Encontrar políticas de garantía
+3. Generar respuesta con información del documento
+4. Mostrar fuente del documento (cita)
+```
+
+#### **3. Usuario pregunta sin contexto**
+```
+Usuario: "¿Cómo está el clima?"
+↓
+1. Buscar en productos → No relevante
+2. Buscar en documentos RAG → No encontrado
+3. Respuesta: "No poseo información sobre ese tema en el documento cargado."
+```
+
+### **Optimizaciones Implementadas**
+
+#### **Performance**
+- **Modelo rápido**: GPT-3.5-turbo (3x más rápido que GPT-4)
+- **Embeddings optimizados**: text-embedding-3-small
+- **Chunking eficiente**: 1200 caracteres por fragmento
+- **Cache inteligente**: 5 minutos para productos, 10 minutos para RAG
+
+#### **UX**
+- **Streaming en tiempo real**: Respuestas inmediatas con tokens
+- **Indicadores visuales**: Muestra qué tipo de contexto se usó
+- **Fallback automático**: Siempre da una respuesta útil
+- **Mensajes de error claros**: Explica qué salió mal
+
+## 🚀 Sistema RAG Auto-Configurable
+
+**NUEVO (v1.1)**: El sistema RAG se configura automáticamente al iniciar el servidor. ¡No necesitas ejecutar comandos manuales!
+
+### **🔧 Configuración Automática**
+
+#### **Modo Demo (Sin MongoDB)**
+- ✅ **Funciona inmediatamente** sin configuración
+- ✅ **UI completa** con funcionalidades simuladas
+- ✅ **Perfecto para desarrollo** y testing
+- ✅ **Todas las páginas disponibles** desde el primer momento
+
+#### **Modo Normal (Con MongoDB)**
+- ✅ **Auto-detección** de MongoDB al iniciar
+- ✅ **Auto-creación** de colecciones e índices
+- ✅ **Procesamiento real** de documentos con embeddings
+- ✅ **Búsqueda semántica** y persistencia completa
+
+### **🎯 Cómo Funciona la Auto-Configuración:**
+
+1. **Inicias el servidor:**
+   ```bash
+   npm run dev
+   ```
+
+2. **El sistema verifica automáticamente:**
+   - ¿MongoDB configurado? → **Modo Normal** (completo)
+   - ¿Sin MongoDB? → **Modo Demo** (simulado)
+
+3. **Si hay MongoDB:**
+   - ✅ Crea colecciones `rag_documents`, `rag_document_chunks`, `rag_document_embeddings`
+   - ✅ Configura índices optimizados para búsquedas
+   - ✅ Activa embeddings reales con OpenAI
+   - ✅ Permite búsqueda semántica y persistencia
+
+4. **Si no hay MongoDB:**
+   - ✅ Usa respuestas simuladas inteligentes
+   - ✅ Mantiene toda la funcionalidad de UI
+   - ✅ Perfecto para desarrollo y testing
+
+### **📊 Logs que Verás:**
+
+**Con MongoDB:**
+```
+✅ MongoDB connected successfully
+📁 Colección rag_documents creada automáticamente
+  ✅ Índice ownerId_idx creado
+  ✅ Índice createdAt_idx creado
+📁 Colección rag_document_chunks creada automáticamente
+  ✅ Índice documentId_idx creado
+✅ Sistema RAG auto-configurado
+🎉 Sistema RAG listo y configurado automáticamente!
+```
+
+**Sin MongoDB:**
+```
+✅ MongoDB connected successfully
+⚠️ No se pudo configurar automáticamente el sistema RAG: Error de conexión
+💡 Puedes ejecutar "npm run rag:setup" manualmente si es necesario
+```
+
+### **🔄 Cambiar entre Modos:**
+
+#### **Para usar Modo Normal:**
+```bash
+# Solo configura MongoDB en .env
+echo "MONGODB_URI=your_mongodb_connection_string" >> .env
+npm run dev  # ✅ Auto-configura todo automáticamente
+```
+
+#### **Para usar Modo Demo:**
+```bash
+# Solo quita o comenta MONGODB_URI en .env
+# npm run dev  # ✅ Funciona en modo demo automáticamente
+```
+
+### **📋 Scripts Disponibles (Opcionales):**
+
+| Comando | Propósito | ¿Necesario? |
+|---------|-----------|-------------|
+| `npm run rag:setup` | Configuración manual | ❌ **Opcional** (auto-setup) |
+| `npm run rag:health` | Verificar estado | ✅ **Recomendado** |
+| `npm run rag:test` | Probar sistema | ✅ **Recomendado** |
+
+### **🎮 Para Probar Ahora:**
+
+1. **Panel de documentos**: `http://localhost:3000/seller/documents`
+2. **Health check**: `npm run rag:health`
+3. **Chat con RAG**: `http://localhost:3000/chat`
+
+**¡Todo funciona automáticamente sin configuración adicional!** 🎉
+
+```
+src/
+├── domain/                    # Clean Architecture
+│   ├── entities/             # Document, DocumentChunk
+│   ├── repositories/         # Interfaces de repositorios
+│   └── services/             # Interfaces de servicios
+├── application/              # Casos de uso
+│   └── useCases/             # UploadDocumentUseCase, AskQuestionUseCase
+├── infrastructure/           # Implementaciones técnicas
+│   ├── database/             # MongoDB repositories
+│   ├── embeddings/           # OpenAI embeddings
+│   └── llm/                  # OpenAI LLM
+└── interfaces/               # HTTP routes
+    └── http/routes/          # API endpoints
+```
+
+### **Testing del Sistema RAG**
+
+#### **Pruebas Funcionales**
+1. **Subir documento PDF** con políticas de la tienda
+2. **Preguntar sobre políticas**: "¿Política de devoluciones?"
+3. **Preguntar sobre productos**: "¿Tienen iPhone 15?"
+4. **Pregunta sin contexto**: "¿Cómo está el clima?"
+
+#### **Pruebas de Performance**
+- **Tiempo de respuesta**: < 2 segundos
+- **Streaming**: Respuestas en tiempo real
+- **Fallback**: Siempre responde algo útil
+- **Health check**: `/api/rag/health` debe retornar status OK
+
+### **Referencias RAG**
+
+- **Documentación completa**: `RAG_SYSTEM_README.md`
+- **Código principal**: `src/application/useCases/AskQuestionUseCase.js`
+- **Panel admin**: `app/rag-admin/page.js`
+- **Demo completa**: `app/rag-demo/page.js`
+
+---
 
 ## Endpoints relevantes
 

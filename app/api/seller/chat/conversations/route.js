@@ -1,6 +1,5 @@
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
-import { requireSeller } from '@/lib/auth';
 import { Conversation } from '@/src/infrastructure/database/models/index.js';
 
 function serializeConversation(conversation) {
@@ -38,17 +37,8 @@ export async function GET(request) {
     console.log('API: Conversations GET request received');
     await connectDB();
 
-    const auth = await requireSeller(request);
-    console.log('Auth result:', auth);
-
-    if (!auth.authorized) {
-      console.log('Auth failed:', auth.message);
-      return NextResponse.json({ success: false, message: auth.message }, { status: auth.user ? 403 : 401 });
-    }
-
-    const { user } = auth;
-    const vendorId = user.vendorId || process.env.DEFAULT_VENDOR_ID || 'default_vendor';
-    console.log('Authenticated user:', { id: user.id, role: user.role, vendorId });
+    const vendorId = process.env.DEFAULT_VENDOR_ID || 'default_vendor';
+    console.log('Using vendorId:', vendorId);
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');

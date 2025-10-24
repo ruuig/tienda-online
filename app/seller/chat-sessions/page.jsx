@@ -1,7 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { useAppContext } from '@/context/AppContext'
+import React, { useCallback, useEffect, useState } from 'react'
 import Loading from '@/src/presentation/components/Loading'
 import toast from 'react-hot-toast'
 
@@ -21,22 +20,6 @@ const PRIORITY_OPTIONS = [
 const DEFAULT_MIN_MESSAGES = 4
 
 const ChatSessionsPage = () => {
-  const { user, getToken } = useAppContext()
-  const userRole = user?.publicMetadata?.role || 'user'
-
-  if (userRole !== 'admin' && userRole !== 'seller') {
-    return (
-      <div className="flex-1 min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Acceso Denegado</h1>
-          <p className="text-gray-600 mb-4">Solo los administradores y vendedores pueden gestionar los chats del bot.</p>
-          <p className="text-sm text-gray-500">Nota: Los administradores tienen permisos de vendedor. Tu rol actual: {userRole}</p>
-          <p className="text-xs text-blue-600 mt-2">Si eres admin o seller, el problema podría ser de autenticación.</p>
-        </div>
-      </div>
-    )
-  }
-
   const [filters, setFilters] = useState({
     status: 'active',
     minMessages: DEFAULT_MIN_MESSAGES,
@@ -55,16 +38,13 @@ const ChatSessionsPage = () => {
   const [updating, setUpdating] = useState(false)
   const [assignmentInput, setAssignmentInput] = useState('')
 
-  const vendorId = useMemo(() => (
-    user?.publicMetadata?.vendorId || process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor'
-  ), [user])
+  const vendorId = process.env.NEXT_PUBLIC_VENDOR_ID || 'default_vendor'
 
   const fetchConversations = useCallback(async (pageOverride) => {
     setLoading(true)
     setError('')
 
     try {
-      const token = await getToken()
       const params = new URLSearchParams()
       const pageToLoad = pageOverride || 1
       params.set('page', pageToLoad.toString())
@@ -87,10 +67,7 @@ const ChatSessionsPage = () => {
       }
 
       const response = await fetch(`/api/seller/chat/conversations?${params.toString()}`, {
-        cache: 'no-store',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        cache: 'no-store'
       })
 
       const data = await response.json()
@@ -115,7 +92,7 @@ const ChatSessionsPage = () => {
     } finally {
       setLoading(false)
     }
-  }, [getToken, filters.status, filters.minMessages, filters.persistedOnly, searchTerm, pagination.limit])
+  }, [filters.status, filters.minMessages, filters.persistedOnly, searchTerm, pagination.limit])
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -135,13 +112,9 @@ const ChatSessionsPage = () => {
     setModalLoading(true)
     setIsModalOpen(true)
     try {
-      const token = await getToken()
       const params = new URLSearchParams({ includeMessages: 'true', limit: '400' })
       const response = await fetch(`/api/seller/chat/conversations/${conversationId}?${params.toString()}`, {
-        cache: 'no-store',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        cache: 'no-store'
       })
       const data = await response.json()
 
@@ -163,12 +136,10 @@ const ChatSessionsPage = () => {
   const updateConversation = async (conversationId, payload, successMessage) => {
     setUpdating(true)
     try {
-      const token = await getToken()
       const response = await fetch(`/api/seller/chat/conversations/${conversationId}`, {
         method: 'PATCH',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       })

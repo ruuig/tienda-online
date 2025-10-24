@@ -1,7 +1,6 @@
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
 import { TicketRepositoryImpl } from '@/src/infrastructure/database/repositories';
-import { getAuthUser } from '@/lib/auth';
 
 // GET /api/chat/ticket - Obtener tickets del usuario
 export async function GET(request) {
@@ -47,11 +46,6 @@ export async function POST(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
-
     const { conversationId, title, description, category, priority = 'medium' } = await request.json();
 
     if (!title || !description || !category) {
@@ -65,7 +59,7 @@ export async function POST(request) {
 
     const ticketData = {
       conversationId,
-      userId: user.id,
+      userId: 'anonymous',
       title,
       description,
       category,

@@ -5,15 +5,6 @@ import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry
 
 export async function POST(request) {
   try {
-    // Validar autenticación de seller
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.includes('seller@tienda.com')) {
-      return NextResponse.json(
-        { success: false, message: 'Acceso denegado' },
-        { status: 403 }
-      );
-    }
-
     console.log('🔄 Iniciando reconstrucción del índice RAG...');
 
     await connectDB();
@@ -57,15 +48,6 @@ export async function POST(request) {
 
 export async function GET(request) {
   try {
-    // Validar autenticación de seller
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.includes('seller@tienda.com')) {
-      return NextResponse.json(
-        { success: false, message: 'Acceso denegado' },
-        { status: 403 }
-      );
-    }
-
     await connectDB();
 
     const { searchParams } = new URL(request.url);

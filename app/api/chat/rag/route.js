@@ -2,20 +2,11 @@
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
 import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
-import { getAuthUser } from '@/lib/auth';
 
 // GET /api/chat/rag/documents - Obtener documentos activos para RAG
 export async function GET(request) {
   try {
     await connectDB();
-
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para ver documentos RAG'
-      }, { status: 403 });
-    }
 
     const { searchParams } = new URL(request.url);
     const vendorId = searchParams.get('vendorId');
@@ -42,14 +33,6 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     await connectDB();
-
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para reconstruir el índice RAG'
-      }, { status: 403 });
-    }
 
     const ragService = getSharedRAGService();
 
@@ -84,14 +67,6 @@ export async function POST(request) {
 export async function GET_STATS(request) {
   try {
     await connectDB();
-
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para ver estadísticas RAG'
-      }, { status: 403 });
-    }
 
     const { searchParams } = new URL(request.url);
     const vendorId = searchParams.get('vendorId');

@@ -40,22 +40,27 @@ export class ConversationalCartService {
   }
 
   /**
-   * Busca un producto específico mencionado en el mensaje
+   * Busca un producto específico mencionado en el mensaje (versión simplificada)
    * @param {string} message - Mensaje del usuario
    * @returns {Promise<Object|null>} - Producto encontrado o null
    */
   async findProductInMessage(message) {
     try {
-      // Buscar productos relevantes usando el método público
-      const relevantProducts = await this.searchProducts(message, 5);
+      // Solo buscar si el mensaje menciona palabras clave de productos
+      const lowerMessage = message.toLowerCase();
+      const productKeywords = ['iphone', 'samsung', 'xiaomi', 'laptop', 'auriculares', 'audífonos', 'watch', 'reloj', 'cámara', 'camera', 'tablet', 'consola'];
 
-      if (relevantProducts.length > 0) {
-        // Si hay múltiples productos, tomar el más relevante (mayor score)
-        // Si hay uno solo, tomarlo directamente
-        return relevantProducts[0];
+      const mentionsProduct = productKeywords.some(keyword => lowerMessage.includes(keyword));
+
+      if (!mentionsProduct) {
+        return null; // No menciona productos, no buscar
       }
 
-      return null;
+      // Si menciona productos, hacer búsqueda rápida
+      const relevantProducts = await this.searchProducts(message, 1); // Solo 1 resultado para velocidad
+
+      return relevantProducts.length > 0 ? relevantProducts[0] : null;
+
     } catch (error) {
       console.error('Error buscando producto en mensaje:', error);
       return null;

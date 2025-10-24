@@ -1,23 +1,10 @@
 import connectDB from '@/config/db'
-import authSeller from '@/lib/authSeller'
-import { getAuth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { GetSellerProductsUseCase } from '@/src/application/use-cases/productUseCases'
 import { ProductRepositoryImpl } from '@/src/infrastructure/database/repositories'
 
 export async function GET(request) {
     try {
-
-        const { userId } = getAuth(request)
-        console.log('🔍 Seller List API - userId:', userId)
-
-        const isSeller = await authSeller(userId)
-        console.log('🔍 Seller List API - isSeller:', isSeller)
-
-        if (!isSeller) {
-            return NextResponse.json({ success: false, message: 'not authorized' });
-        }
-
         await connectDB()
         console.log('🔍 Seller List API - Connected to DB')
 
@@ -31,7 +18,7 @@ export async function GET(request) {
             return NextResponse.json({ success: false, message: result.message })
         }
 
-        console.log('🔍 Seller List API - All products for admin:', result.products.length)
+        console.log('🔍 Seller List API - All products:', result.products.length)
 
         // Crear respuesta sin caché
         const response = NextResponse.json({ success: true, products: result.products })

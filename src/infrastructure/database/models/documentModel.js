@@ -95,6 +95,6 @@ documentSchema.index({ title: 'text', content: 'text', tags: 'text' });
 documentSchema.index({ isActive: 1 });
 documentSchema.index({ vendorId: 1, isActive: 1 });
 
-const Document = mongoose.models.Document || mongoose.model('Document', documentSchema);
+const Document = mongoose.models.Document || mongoose.model('Document', documentSchema, 'rag_documents');
 
 export default Document;

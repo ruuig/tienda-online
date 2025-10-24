@@ -88,20 +88,17 @@ const ticketSchema = new mongoose.Schema({
     max: 5 // Rating del usuario sobre la resolución
   },
   metadata: {
-    type: new mongoose.Schema({
-      source: String, // De dónde viene el ticket (chat, email, phone)
-      channel: String, // Canal específico
-      senderName: String,
-      senderEmail: String,
-      subject: String,
-      firstResponseTime: Date,
-      resolutionTime: Date,
-      reopenedCount: {
-        type: Number,
-        default: 0
-      }
-    }, { _id: false }),
-    default: {}
+    source: String, // De dónde viene el ticket (chat, email, phone)
+    channel: String, // Canal específico
+    senderName: String,
+    senderEmail: String,
+    subject: String,
+    firstResponseTime: Date,
+    resolutionTime: Date,
+    reopenedCount: {
+      type: Number,
+      default: 0
+    }
   },
   messages: {
     type: [ticketMessageSchema],

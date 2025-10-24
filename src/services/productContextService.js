@@ -3,8 +3,6 @@
  * Convierte productos en documentos RAG y proporciona funciones de búsqueda
  */
 
-import { RAGService } from '@/src/infrastructure/rag/ragService.js';
-
 export class ProductContextService {
   constructor() {
     this.ragService = null;
@@ -20,20 +18,7 @@ export class ProductContextService {
     try {
       console.log('🚀 Inicializando servicio de contexto de productos...');
 
-      // Crear repositorio mock para RAG
-      const documentRepository = {
-        findAll: async (filters) => {
-          return this.productsToDocuments(products);
-        }
-      };
-
-      // Crear servicio RAG
-      this.ragService = new RAGService(documentRepository);
-
-      // Convertir productos a documentos y construir índice
-      const documents = this.productsToDocuments(products);
-      await this.ragService.buildIndex(documents);
-
+      // Guardar productos directamente sin usar RAGService
       this.productsCache = products;
       this.lastUpdate = new Date();
 
@@ -73,44 +58,12 @@ export class ProductContextService {
   }
 
   /**
-   * Genera contenido detallado de un producto para el RAG
+   * Genera contenido simplificado de un producto para el RAG
    * @param {Object} product - Producto
-   * @returns {string} - Contenido formateado
+   * @returns {string} - Contenido formateado y corto
    */
   generateProductContent(product) {
-    const features = this.extractFeatures(product.description);
-    const categoryInfo = this.getCategoryInfo(product.category);
-
-    return `
-PRODUCTO: ${product.name}
-
-CATEGORÍA: ${categoryInfo.displayName}
-PRECIO: Q${product.offerPrice}
-${product.price > product.offerPrice ? `PRECIO ORIGINAL: Q${product.price}` : ''}
-
-DESCRIPCIÓN:
-${product.description}
-
-CARACTERÍSTICAS PRINCIPALES:
-${features.map(f => `• ${f}`).join('\n')}
-
-INFORMACIÓN ADICIONAL:
-- Categoría técnica: ${product.category}
-- ID del producto: ${product._id}
-- Fecha de creación: ${new Date(product.date).toLocaleDateString()}
-${categoryInfo.description ? `- ${categoryInfo.description}` : ''}
-
-¿CÓMO COMPRAR?
-1. Agregar al carrito desde la página del producto
-2. Proceder al checkout
-3. Elegir método de pago
-4. Confirmar la compra
-
-POLÍTICAS:
-- Envío disponible a toda Guatemala
-- Devoluciones dentro de 30 días
-- Garantía según el fabricante
-    `.trim();
+    return `${product.name} - ${product.description.substring(0, 100)}... Categoría: ${product.category}. Precio: Q${product.offerPrice}.`.trim();
   }
 
   /**
@@ -194,33 +147,57 @@ POLÍTICAS:
   }
 
   /**
-   * Busca productos relevantes para una consulta
+   * Busca productos relevantes para una consulta (versión simplificada y rápida)
    * @param {string} query - Consulta del usuario
    * @param {number} limit - Número máximo de resultados
    * @returns {Promise<Array>} - Productos relevantes
    */
   async searchProducts(query, limit = 5) {
     try {
-      if (!this.ragService) {
-        console.warn('⚠️ Servicio RAG no inicializado');
+      if (!this.productsCache || this.productsCache.length === 0) {
+        console.warn('⚠️ No hay productos en cache');
         return [];
       }
 
-      const results = await this.ragService.search(query, limit);
+      // Búsqueda simple por texto en lugar de RAG para mayor velocidad
+      const lowerQuery = query.toLowerCase();
+      const scoredProducts = [];
 
-      // Convertir resultados a productos
-      const products = results.map(result => {
-        const productId = result.metadata?.productId;
-        const product = this.productsCache.find(p => p._id === productId);
+      for (const product of this.productsCache) {
+        let score = 0;
+        const lowerName = product.name.toLowerCase();
+        const lowerDesc = product.description.toLowerCase();
+        const lowerCategory = product.category.toLowerCase();
 
-        return {
-          ...product,
-          relevanceScore: result.similarity,
-          matchedContent: result.content
-        };
-      }).filter(Boolean);
+        // Búsqueda por nombre exacto (mayor peso)
+        if (lowerName.includes(lowerQuery)) {
+          score += 10;
+        }
 
-      return products;
+        // Búsqueda por categoría
+        if (lowerCategory.includes(lowerQuery)) {
+          score += 5;
+        }
+
+        // Búsqueda en descripción (menor peso)
+        const queryWords = lowerQuery.split(' ').filter(word => word.length > 2);
+        queryWords.forEach(word => {
+          if (lowerName.includes(word)) score += 3;
+          if (lowerDesc.includes(word)) score += 1;
+        });
+
+        if (score > 0) {
+          scoredProducts.push({
+            ...product,
+            relevanceScore: score / 10 // Normalizar
+          });
+        }
+      }
+
+      // Ordenar por relevancia y limitar
+      return scoredProducts
+        .sort((a, b) => b.relevanceScore - a.relevanceScore)
+        .slice(0, limit);
 
     } catch (error) {
       console.error('❌ Error buscando productos:', error);
@@ -255,7 +232,7 @@ POLÍTICAS:
   }
 
   /**
-   * Genera contexto para el chat sobre productos
+   * Genera contexto para el chat sobre productos e información de la tienda
    * @param {string} query - Consulta del usuario (opcional)
    * @returns {Promise<string>} - Contexto formateado
    */
@@ -263,48 +240,138 @@ POLÍTICAS:
     try {
       let context = '';
 
-      // Información general de la tienda
-      context += `INFORMACIÓN DE LA TIENDA:\n`;
-      context += `Somos una tienda en línea especializada en productos tecnológicos.\n`;
-      context += `Ofrecemos productos de las siguientes categorías: ${this.getProductsSummary().categories.join(', ')}.\n\n`;
+      // Información General de RJG Tech Shop
+      context += `INFORMACIÓN DE RJG TECH SHOP:\n`;
+      context += `Somos una tienda online especializada en tecnología y productos electrónicos.\n`;
+      context += `Comprometidos con brindar la mejor experiencia de compra a nuestros clientes.\n\n`;
 
-      // Si hay una consulta específica, buscar productos relevantes
-      if (query.trim()) {
-        const relevantProducts = await this.searchProducts(query, 3);
+      // Misión y Visión
+      context += `NUESTRA MISIÓN:\n`;
+      context += `Proporcionar productos tecnológicos de alta calidad, con servicio excepcional y precios competitivos, haciendo que la tecnología sea accesible para todos.\n\n`;
 
-        if (relevantProducts.length > 0) {
-          context += `PRODUCTOS RELEVANTES PARA TU CONSULTA:\n`;
-          relevantProducts.forEach((product, index) => {
-            context += `${index + 1}. ${product.name}\n`;
-            context += `   - Categoría: ${this.getCategoryInfo(product.category).displayName}\n`;
-            context += `   - Precio: Q${product.offerPrice}\n`;
-            context += `   - Descripción: ${product.description.substring(0, 100)}...\n\n`;
-          });
-        }
-      } else {
-        // Información general cuando no hay consulta específica
-        const summary = this.getProductsSummary();
-        context += `RESUMEN DE PRODUCTOS DISPONIBLES:\n`;
+      context += `NUESTRA VISIÓN:\n`;
+      context += `Ser la tienda online líder en tecnología en Guatemala, reconocida por su innovación, calidad y compromiso con la satisfacción del cliente.\n\n`;
+
+      context += `NUESTROS VALORES:\n`;
+      context += `- Calidad: Productos originales con garantía del fabricante\n`;
+      context += `- Servicio: Atención personalizada y soporte técnico especializado\n`;
+      context += `- Precios Competitivos: Promociones exclusivas y descuentos constantes\n\n`;
+
+      // Información del Equipo
+      context += `NUESTRO EQUIPO:\n`;
+      context += `- Rudy Eleazar Oloroso Gutierrez – CEO & Founder (Coordinador de la empresa y del grupo de trabajo)\n`;
+      context += `- Jan Carlos René Marcos Marín – Director de Estrategia Comercial (Planificación de ventas, análisis de mercado, tratos con proveedores)\n`;
+      context += `- Gerardo Waldemar García Vásquez – Director Técnico (Especialista en tecnología e innovación, oferta actualizada)\n\n`;
+
+      // Información de Contacto
+      context += `INFORMACIÓN DE CONTACTO:\n`;
+      context += `- Dirección: Parque El Calvario, Chiquimula, Guatemala, C.A.\n`;
+      context += `- Teléfonos: +502 5712-0482, +502 4002-6108, +502 3696-7266\n`;
+      context += `- Correo: soporterjgtechshop@gmail.com\n`;
+      context += `- Horario de Atención:\n`;
+      context += `  * Lunes a Viernes: 8:00 AM – 6:00 PM\n`;
+      context += `  * Sábados: 9:00 AM – 4:00 PM\n`;
+      context += `  * Domingos: Cerrado\n\n`;
+
+      // Preguntas Frecuentes
+      context += `PREGUNTAS FRECUENTES:\n`;
+      context += `1. ¿Cómo hacer un pedido?\n`;
+      context += `   - Realizarlo directamente desde nuestra tienda online\n`;
+      context += `   - Agregar productos al carrito\n`;
+      context += `   - Confirmar datos y realizar pago seguro\n\n`;
+      context += `2. ¿Qué métodos de pago aceptan?\n`;
+      context += `   - Tarjetas de crédito y débito\n`;
+      context += `   - Transferencias bancarias\n`;
+      context += `   - Pago contra entrega (según disponibilidad)\n\n`;
+      context += `3. ¿Cuánto tarda la entrega?\n`;
+      context += `   - 2–3 días hábiles dentro de la capital\n`;
+      context += `   - 3–5 días en el interior del país\n\n`;
+      context += `4. ¿Los productos tienen garantía?\n`;
+      context += `   - Sí, todos incluyen garantía del fabricante\n`;
+      context += `   - Duración: 6 meses a 2 años según modelo\n\n`;
+
+      // Información de Productos
+      const summary = this.getProductsSummary();
+      if (summary.totalProducts > 0) {
+        context += `PRODUCTOS DISPONIBLES:\n`;
         context += `- Total de productos: ${summary.totalProducts}\n`;
         context += `- Categorías: ${summary.categories.join(', ')}\n`;
         context += `- Rango de precios: Q${summary.priceRange.min} - Q${summary.priceRange.max}\n\n`;
+
+        // Si hay una consulta específica, buscar productos relevantes
+        if (query.trim()) {
+          const relevantProducts = await this.searchProducts(query, 3);
+
+          if (relevantProducts.length > 0) {
+            context += `PRODUCTOS RELEVANTES PARA TU CONSULTA:\n`;
+            relevantProducts.forEach((product, index) => {
+              context += `${index + 1}. ${product.name}\n`;
+              context += `   - Categoría: ${this.getCategoryInfo(product.category).displayName}\n`;
+              context += `   - Precio: Q${product.offerPrice}\n`;
+              context += `   - Descripción: ${product.description.substring(0, 100)}...\n\n`;
+            });
+          }
+        }
       }
 
-      // Instrucciones para el asistente
+      // Instrucciones para el Asistente
       context += `INSTRUCCIONES PARA EL ASISTENTE:\n`;
-      context += `- Sé amable y profesional\n`;
-      context += `- Proporciona información precisa sobre productos y precios\n`;
-      context += `- Si no tienes información sobre un producto específico, indícalo claramente\n`;
-      context += `- Ofrece alternativas similares si es apropiado\n`;
-      context += `- Siempre menciona que los precios están en Quetzales (Q)\n`;
-      context += `- Sugiere visitar la página web para ver detalles completos\n\n`;
+      context += `PERSONALIDAD:\n`;
+      context += `- Tono: Amable, profesional y servicial\n`;
+      context += `- Objetivo: Ayudar al cliente de forma clara, rápida y educada\n`;
+      context += `- NUNCA hacer: Bromas, chistes, respuestas fuera del tema, opiniones personales, información falsa\n\n`;
+
+      context += `REGLAS DE RESPUESTA:\n`;
+      context += `- Siempre responder en español\n`;
+      context += `- Mantener tono profesional y servicial\n`;
+      context += `- Enfocarse únicamente en productos, servicios y procesos de la tienda\n`;
+      context += `- Redirigir consultas fuera de tema hacia productos o servicios disponibles\n`;
+      context += `- Proporcionar información precisa sobre productos y precios\n`;
+      context += `- Mencionar que los precios están en Quetzales (Q)\n`;
+      context += `- Sugerir visitar la página web para ver detalles completos\n\n`;
+
+      context += `EJEMPLOS DE TONO CORRECTO:\n`;
+      context += `- "¡Hola! 😊 Gracias por comunicarte con RJG Tech Shop. Con gusto te ayudo a encontrar el producto que necesitas."\n`;
+      context += `- "¡Con gusto! 😊 ¿Podrías decirme el nombre o tipo de producto que buscas? Te ayudaré a encontrar la mejor opción."\n`;
+      context += `- "Todos nuestros productos incluyen garantía del fabricante, con duración de 6 meses a 2 años según el artículo."\n\n`;
+
+      context += `RESPUESTAS A EVITAR:\n`;
+      context += `- Respuestas casuales o informales\n`;
+      context += `- Información falsa o especulativa\n`;
+      context += `- Comentarios personales o ajenos a la tienda\n`;
+      context += `- "No sé, pero supongo que eso depende de ti 😅"\n\n`;
 
       return context;
 
     } catch (error) {
       console.error('❌ Error generando contexto:', error);
-      return 'Error generando contexto de productos.';
+      return this.generateBasicContext();
     }
+  }
+
+  /**
+   * Genera contexto básico cuando hay error
+   * @returns {string} - Contexto básico de RJG Tech Shop
+   */
+  generateBasicContext() {
+    return `INFORMACIÓN DE RJG TECH SHOP:
+
+Somos una tienda online especializada en tecnología y productos electrónicos.
+
+INFORMACIÓN DE CONTACTO:
+- Dirección: Parque El Calvario, Chiquimula, Guatemala, C.A.
+- Teléfonos: +502 5712-0482, +502 4002-6108, +502 3696-7266
+- Correo: soporterjgtechshop@gmail.com
+- Horario: Lunes a Viernes 8:00 AM – 6:00 PM, Sábados 9:00 AM – 4:00 PM
+
+INSTRUCCIONES PARA EL ASISTENTE:
+- Sé amable, profesional y servicial
+- Responde en español de manera clara y concisa
+- Enfócate únicamente en productos, servicios y procesos de la tienda
+- Proporciona información precisa sobre productos y precios
+- Menciona que los precios están en Quetzales (Q)
+
+Tono correcto: "¡Hola! 😊 Gracias por comunicarte con RJG Tech Shop. Con gusto te ayudo a encontrar el producto que necesitas."`;
   }
 
   /**
@@ -321,24 +388,33 @@ POLÍTICAS:
   }
 
   /**
-   * Obtiene estadísticas del contexto
-   * @returns {Object} - Estadísticas del servicio
+   * Obtiene documentos RAG disponibles para un proveedor
+   * @param {string} vendorId - ID del proveedor
+   * @returns {Promise<Array>} - Array de documentos activos
    */
-  getStats() {
-    if (!this.ragService) {
-      return { status: 'no_initialized' };
+  async getDocumentsForVendor(vendorId) {
+    try {
+      // Devolver información de RJG Tech Shop como documento principal
+      const rjgTechShopDocument = {
+        _id: 'rjg_tech_shop_info',
+        title: 'Información General de RJG Tech Shop',
+        content: this.generateBasicContext(),
+        type: 'information',
+        category: 'company',
+        createdAt: new Date('2025-01-01'),
+        updatedAt: new Date(),
+        isActive: true,
+        filename: 'rjg-tech-shop-info.txt',
+        vendorId: vendorId
+      };
+
+      // TODO: Implementar consulta real a la base de datos cuando esté disponible
+      return [rjgTechShopDocument];
+
+    } catch (error) {
+      console.error('Error getting documents for vendor:', error);
+      return [];
     }
-
-    const ragStats = this.ragService.getStats();
-    const summary = this.getProductsSummary();
-
-    return {
-      status: 'active',
-      lastUpdate: this.lastUpdate,
-      productsCount: summary.totalProducts,
-      categories: summary.categories,
-      ...ragStats
-    };
   }
 }
 

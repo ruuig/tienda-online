@@ -2,20 +2,14 @@ import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
 import { ConversationRepositoryImpl, MessageRepositoryImpl } from '@/src/infrastructure/database/repositories';
 import { CreateConversationUseCase } from '@/src/application/use-cases/chatUseCases';
-import { getAuthUser } from '@/lib/auth';
 
 // GET /api/chat/conversation - Obtener conversaciones del usuario
 export async function GET(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
-
     const conversationRepository = new ConversationRepositoryImpl();
-    const conversations = await conversationRepository.findByUserId(user.id);
+    const conversations = await conversationRepository.findAll();
 
     return NextResponse.json({
       success: true,
@@ -36,11 +30,6 @@ export async function POST(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
-
     const { title, initialMessage } = await request.json();
 
     const conversationRepository = new ConversationRepositoryImpl();
@@ -49,7 +38,7 @@ export async function POST(request) {
     // Crear caso de uso
     const createConversationUseCase = new CreateConversationUseCase(conversationRepository, messageRepository);
 
-    const result = await createConversationUseCase.execute(user.id, title, initialMessage);
+    const result = await createConversationUseCase.execute('anonymous', title, initialMessage);
 
     if (!result.success) {
       return NextResponse.json({
