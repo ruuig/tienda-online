@@ -1,6 +1,4 @@
 import connectDB from '@/config/db';
-import authSeller from '@/lib/authSeller';
-import { getAuth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import Ticket from '@/src/infrastructure/database/models/ticketModel';
@@ -13,30 +11,33 @@ function isValidObjectId(id) {
   return mongoose.Types.ObjectId.isValid(id);
 }
 
-async function ensureSeller(request) {
-  const { userId } = getAuth(request);
-  if (!userId) {
-    return { error: NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 }) };
-  }
-
-  const isSeller = await authSeller(userId);
-  if (!isSeller) {
-    return { error: NextResponse.json({ success: false, message: 'No autorizado' }, { status: 403 }) };
-  }
-
-  return { userId };
-}
-
-export async function GET(request, { params }) {
+export async function DELETE(request, context) {
   try {
-    const authResult = await ensureSeller(request);
-    if (authResult.error) {
-      return authResult.error;
-    }
-
     await connectDB();
 
-    const { ticketId } = params;
+    const { ticketId } = await context.params;
+    if (!isValidObjectId(ticketId)) {
+      return NextResponse.json({ success: false, message: 'Identificador inválido' }, { status: 400 });
+    }
+
+    const deleted = await Ticket.findByIdAndDelete(ticketId).lean();
+
+    if (!deleted) {
+      return NextResponse.json({ success: false, message: 'Ticket no encontrado' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, ticket: deleted });
+  } catch (error) {
+    console.error(`Error eliminando ticket ${context?.params?.ticketId}:`, error);
+    return NextResponse.json({ success: false, message: 'Error al eliminar el ticket', error: error.message }, { status: 500 });
+  }
+}
+
+export async function GET(request, context) {
+  try {
+    await connectDB();
+
+    const { ticketId } = await context.params;
     if (!isValidObjectId(ticketId)) {
       return NextResponse.json({ success: false, message: 'Identificador inválido' }, { status: 400 });
     }
@@ -46,23 +47,20 @@ export async function GET(request, { params }) {
       return NextResponse.json({ success: false, message: 'Ticket no encontrado' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, ticket });
+    const messages = Array.isArray(ticket.messages) ? ticket.messages : [];
+
+    return NextResponse.json({ success: true, ticket: { ...ticket, messages } });
   } catch (error) {
-    console.error(`Error obteniendo ticket ${params?.ticketId}:`, error);
+    console.error(`Error obteniendo ticket ${context?.params?.ticketId}:`, error);
     return NextResponse.json({ success: false, message: 'Error al obtener el ticket', error: error.message }, { status: 500 });
   }
 }
 
-export async function PATCH(request, { params }) {
+export async function PATCH(request, context) {
   try {
-    const authResult = await ensureSeller(request);
-    if (authResult.error) {
-      return authResult.error;
-    }
-
     await connectDB();
 
-    const { ticketId } = params;
+    const { ticketId } = await context.params;
     if (!isValidObjectId(ticketId)) {
       return NextResponse.json({ success: false, message: 'Identificador inválido' }, { status: 400 });
     }
@@ -103,7 +101,7 @@ export async function PATCH(request, { params }) {
 
     return NextResponse.json({ success: true, ticket: updatedTicket });
   } catch (error) {
-    console.error(`Error actualizando ticket ${params?.ticketId}:`, error);
+    console.error(`Error actualizando ticket ${context?.params?.ticketId}:`, error);
     return NextResponse.json({ success: false, message: 'Error al actualizar el ticket', error: error.message }, { status: 500 });
   }
 }

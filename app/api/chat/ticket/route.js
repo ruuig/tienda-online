@@ -7,29 +7,26 @@ import { getAuthUser } from '@/lib/auth';
 export async function GET(request) {
   try {
     await connectDB();
-
-    const user = await getAuthUser(request);
-    if (!user) {
-      return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-    }
-
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status');
+    const statusParam = searchParams.get('status');
     const priority = searchParams.get('priority');
+    const showAll = searchParams.get('all') === 'true';
+    const source = searchParams.get('source');
 
     const filters = {};
-    if (status) filters.status = status;
+    if (statusParam) {
+      const statusList = statusParam.split(',').map((value) => value.trim()).filter(Boolean);
+      if (statusList.length > 1) {
+        filters.status = { $in: statusList };
+      } else if (statusList.length === 1) {
+        filters.status = statusList[0];
+      }
+    }
     if (priority) filters.priority = priority;
+    if (source) filters.source = source;
 
     const ticketRepository = new TicketRepositoryImpl();
-
-    // Si es admin, puede ver todos los tickets; si es usuario normal, solo los suyos
-    let tickets;
-    if (user.isAdmin) {
-      tickets = await ticketRepository.findAll(filters);
-    } else {
-      tickets = await ticketRepository.findByUserId(user.id);
-    }
+    const tickets = await ticketRepository.findAll(filters);
 
     return NextResponse.json({
       success: true,
