@@ -15,16 +15,11 @@ const SliderManagement = () => {
     offer: '',
     buttonText1: 'Comprar Ahora',
     buttonText2: 'Ver Más',
-    buttonLink1: '',
     buttonLink2: '/all-products',
     imgSrc: ''
   })
   const [showImageSelector, setShowImageSelector] = useState(false)
   const [selectedImageFor, setSelectedImageFor] = useState(null) // 'new' o slide.id
-  const [showProductSelector, setShowProductSelector] = useState(false)
-  const [selectedProductFor, setSelectedProductFor] = useState(null)
-  const [products, setProducts] = useState([])
-  const [loadingProducts, setLoadingProducts] = useState(false)
 
   // Lista de imágenes disponibles de assets
   const availableImages = [
@@ -67,38 +62,23 @@ const SliderManagement = () => {
     setShowImageSelector(true)
   }
 
-  const openProductSelector = (forWhat) => {
-    setSelectedProductFor(forWhat)
-    setShowProductSelector(true)
-  }
-
-  const selectProduct = (productId) => {
-    if (selectedProductFor === 'new') {
-      setNewSlide({...newSlide, buttonLink1: productId})
-    } else if (editingSlide) {
-      setEditingSlide({...editingSlide, buttonLink1: productId})
-    }
-    setShowProductSelector(false)
-    setSelectedProductFor(null)
-  }
-
-  const getProductName = (productId) => {
-    if (!productId) return 'Sin producto seleccionado'
-    const product = products.find(item => item._id === productId)
-    return product ? product.name : productId
-  }
+  const getProductName = () => 'Sin producto asociado'
 
   // Cargar slides actuales
   const fetchSlides = async () => {
     try {
-      const response = await fetch('/api/header-slider/list')
+      const response = await fetch(`/api/header-slider/list?t=${Date.now()}`)
       const data = await response.json()
 
       if (data.success) {
-        const normalizedSlides = (data.slides || []).map(slide => ({
-          ...slide,
-          buttonLink1: slide.buttonLink1 || '',
-          buttonLink2: slide.buttonLink2 || '/all-products'
+        const normalizedSlides = (data.slides || []).map((slide, idx) => ({
+          id: slide.id ?? idx + 1,
+          title: slide.title || '',
+          offer: slide.offer || '',
+          buttonText1: slide.buttonText1 || 'Comprar Ahora',
+          buttonText2: slide.buttonText2 || 'Ver Más',
+          buttonLink2: slide.buttonLink2 || '/all-products',
+          imgSrc: slide.imgSrc || 'header_headphone_image'
         }))
         setSlides(normalizedSlides)
       } else {
@@ -118,31 +98,6 @@ const SliderManagement = () => {
     fetchSlides()
   }, [])
 
-  const fetchProducts = async () => {
-    try {
-      setLoadingProducts(true)
-      const timestamp = Date.now()
-      const response = await fetch(`/api/product/list?t=${timestamp}`)
-      const data = await response.json()
-
-      if (data.success) {
-        setProducts(data.products || [])
-      } else {
-        setProducts([])
-        toast.error(data.message || 'Error al cargar productos')
-      }
-    } catch (error) {
-      console.error('Error fetching products:', error)
-      setProducts([])
-      toast.error('Error al cargar productos')
-    } finally {
-      setLoadingProducts(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchProducts()
-  }, [])
 
   // Inicializar slider con datos por defecto
   const initializeSlider = async () => {
@@ -189,12 +144,26 @@ const SliderManagement = () => {
         setEditingSlide(null)
       }
 
+      const sanitizedSlides = slidesToSave.map((slide, idx) => ({
+        id: slide.id ?? idx + 1,
+        title: slide.title || '',
+        offer: slide.offer || '',
+        buttonText1: slide.buttonText1 || 'Comprar Ahora',
+        buttonText2: slide.buttonText2 || 'Ver Más',
+        buttonLink2: slide.buttonLink2 || '/all-products',
+        imgSrc: slide.imgSrc || ''
+      }))
+
+      console.log('Saving slides payload:', sanitizedSlides)
+
+      setSlides(sanitizedSlides)
+
       const response = await fetch('/api/header-slider/save', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ slides: slidesToSave }),
+        body: JSON.stringify({ slides: sanitizedSlides }),
       })
 
       const data = await response.json()
@@ -221,7 +190,6 @@ const SliderManagement = () => {
     const slide = {
       id: Date.now(),
       ...newSlide,
-      buttonLink1: newSlide.buttonLink1 || '',
       buttonLink2: newSlide.buttonLink2 || '/all-products'
     }
 
@@ -231,7 +199,6 @@ const SliderManagement = () => {
       offer: '',
       buttonText1: 'Comprar Ahora',
       buttonText2: 'Ver Más',
-      buttonLink1: '',
       buttonLink2: '/all-products',
       imgSrc: ''
     })
@@ -249,7 +216,6 @@ const SliderManagement = () => {
   const startEdit = (slide) => {
     setEditingSlide({
       ...slide,
-      buttonLink1: slide.buttonLink1 || '',
       buttonLink2: slide.buttonLink2 || '/all-products'
     })
   }
@@ -347,24 +313,6 @@ const SliderManagement = () => {
                   onChange={(e) => setNewSlide({...newSlide, buttonText2: e.target.value})}
                   className="p-3 border rounded-lg"
                 />
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openProductSelector('new')}
-                    className="p-3 border rounded-lg text-left hover:bg-gray-50 transition"
-                  >
-                    {newSlide.buttonLink1 ? `Producto: ${getProductName(newSlide.buttonLink1)}` : 'Elige el producto'}
-                  </button>
-                  {newSlide.buttonLink1 && (
-                    <button
-                      type="button"
-                      onClick={() => setNewSlide({...newSlide, buttonLink1: ''})}
-                      className="text-sm text-red-500 hover:text-red-600 self-start"
-                    >
-                      Quitar selección
-                    </button>
-                  )}
-                </div>
                 <input
                   type="text"
                   placeholder="Enlace botón 2 (Ver Más)"
@@ -441,23 +389,8 @@ const SliderManagement = () => {
                         className="p-3 border rounded-lg"
                         placeholder="Texto botón 2"
                       />
-                      <div className="flex flex-col gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openProductSelector(editingSlide.id)}
-                          className="p-3 border rounded-lg text-left hover:bg-gray-50 transition"
-                        >
-                          {editingSlide.buttonLink1 ? `Producto: ${getProductName(editingSlide.buttonLink1)}` : 'Elige el producto'}
-                        </button>
-                        {editingSlide.buttonLink1 && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingSlide({...editingSlide, buttonLink1: ''})}
-                            className="text-sm text-red-500 hover:text-red-600 self-start"
-                          >
-                            Quitar selección
-                          </button>
-                        )}
+                      <div className="flex flex-col gap-2 text-xs text-gray-500">
+                      
                       </div>
                       <input
                         type="text"
@@ -523,9 +456,7 @@ const SliderManagement = () => {
                             {slide.buttonText2}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-2">
-                          {slide.buttonLink1 ? `Producto: ${getProductName(slide.buttonLink1)}` : 'Sin producto asociado'}
-                        </p>
+                        <p className="text-xs text-gray-500 mt-2"></p>
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -639,62 +570,6 @@ const SliderManagement = () => {
             </div>
           )}
 
-          {showProductSelector && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white p-6 rounded-lg max-w-4xl max-h-[80vh] overflow-y-auto w-full">
-                <h3 className="text-xl font-semibold mb-4">Seleccionar producto</h3>
-                {loadingProducts ? (
-                  <div className="py-10 text-center text-gray-500">Cargando productos...</div>
-                ) : products.length === 0 ? (
-                  <div className="py-10 text-center text-gray-500">No hay productos disponibles</div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <div
-                      onClick={() => selectProduct('')}
-                      className="cursor-pointer border-2 border-dashed border-gray-200 rounded-lg p-4 flex flex-col items-center justify-center hover:border-secondary-500 transition-colors"
-                    >
-                      <p className="text-sm text-gray-600">Sin producto</p>
-                    </div>
-                    {products.map((product) => (
-                      <div
-                        key={product._id}
-                        onClick={() => selectProduct(product._id)}
-                        className="cursor-pointer border-2 border-gray-200 rounded-lg p-4 hover:border-secondary-500 transition-colors flex flex-col gap-3"
-                      >
-                        <div className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-                          <Image
-                            src={product.image?.[0] || assets.header_headphone_image}
-                            alt={product.name}
-                            width={200}
-                            height={120}
-                            className="object-contain"
-                            onError={(e) => {
-                              e.target.src = assets.header_headphone_image
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm text-gray-800">{product.name}</p>
-                          <p className="text-xs text-gray-500">{product.category}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex justify-end mt-6">
-                  <button
-                    onClick={() => {
-                      setShowProductSelector(false)
-                      setSelectedProductFor(null)
-                    }}
-                    className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
