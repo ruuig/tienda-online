@@ -1,17 +1,16 @@
 {
   "name": "ecommerce-inngest",
   "version": "0.1.0",
-  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.11.1",
     "axios": "^1.7.9",
-    "cloudinary": "^2.5.1",
+    "dotenv": "^16.4.5",
     "inngest": "^3.31.3",
     "leaflet": "^1.9.4",
     "mongoose": "^8.10.0",
