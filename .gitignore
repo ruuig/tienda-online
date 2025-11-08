@@ -43,20 +43,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-# uploads and user documents
-/uploads
-/documents
-
-# test files
-test-connection*.js
-/scripts/test-*.js
-/scripts/final*.js
-/scripts/verify*.js
-/scripts/fix*.js
-/scripts/manual-tests.mjs
-
-# Python virtual environments
-.venv/
-__pycache__/
-*.pyc
+.env

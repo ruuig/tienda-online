@@ -1,66 +1,29 @@
 // API para reconstruir índice RAG del administrador
 import { NextResponse } from 'next/server';
-import { RAGService } from '@/src/infrastructure/rag/ragService.js';
-import fs from 'fs';
-import { existsSync } from 'fs';
-import { join } from 'path';
+import connectDB from '@/config/db';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 
 export async function POST(request) {
   try {
-    // Validar autenticación de seller
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.includes('seller@tienda.com')) {
-      return NextResponse.json(
-        { success: false, message: 'Acceso denegado' },
-        { status: 403 }
-      );
-    }
-
     console.log('🔄 Iniciando reconstrucción del índice RAG...');
 
-    // Obtener documentos activos desde el sistema de archivos
-    const documentsDir = join(process.cwd(), 'documents');
-    const documentsIndexPath = join(documentsDir, 'index.json');
+    await connectDB();
 
-    if (!existsSync(documentsIndexPath)) {
-      return NextResponse.json(
-        { success: false, message: 'No hay documentos para indexar' },
-        { status: 400 }
-      );
+    let vendorId = null;
+    try {
+      const body = await request.json();
+      vendorId = body?.vendorId || null;
+    } catch (parseError) {
+      vendorId = null;
     }
 
-    const indexData = fs.readFileSync(documentsIndexPath, 'utf8');
-    const documents = JSON.parse(indexData);
-
-    // Filtrar solo documentos activos
-    const activeDocuments = documents.filter(doc => doc.isActive);
-
-    if (activeDocuments.length === 0) {
-      return NextResponse.json(
-        { success: false, message: 'No hay documentos activos para indexar' },
-        { status: 400 }
-      );
-    }
-
-    // Preparar documentos para RAG
-    const ragDocuments = activeDocuments.map(doc => ({
-      _id: doc.id,
-      title: doc.title,
-      content: doc.content || doc.description || '',
-      type: doc.type,
-      category: doc.category
-    }));
-
-    // Crear servicio RAG y reconstruir índice
-    const ragService = new RAGService();
-    await ragService.buildIndex(ragDocuments);
-
-    // Obtener estadísticas actualizadas
-    const stats = ragService.getStats();
+    const ragService = getSharedRAGService();
+    const rebuildResult = await ragService.rebuildIndex({ vendorId });
+    const stats = ragService.getStats({ vendorId });
 
     console.log('✅ Índice RAG reconstruido exitosamente:', {
-      documents: documents.length,
-      chunks: stats.indexedChunks,
+      documents: rebuildResult.documentsIndexed,
+      chunks: rebuildResult.chunksIndexed,
       timestamp: new Date().toISOString()
     });
 
@@ -68,8 +31,8 @@ export async function POST(request) {
       success: true,
       message: 'Índice RAG reconstruido exitosamente',
       stats: {
-        documentsProcessed: documents.length,
-        chunksIndexed: stats.indexedChunks,
+        documentsProcessed: rebuildResult.documentsIndexed,
+        chunksIndexed: rebuildResult.chunksIndexed,
         totalSize: stats.memoryUsage
       }
     });
@@ -85,18 +48,14 @@ export async function POST(request) {
 
 export async function GET(request) {
   try {
-    // Validar autenticación de seller
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.includes('seller@tienda.com')) {
-      return NextResponse.json(
-        { success: false, message: 'Acceso denegado' },
-        { status: 403 }
-      );
-    }
+    await connectDB();
 
-    // Obtener estadísticas del RAG
-    const ragService = new RAGService();
-    const stats = ragService.getStats();
+    const { searchParams } = new URL(request.url);
+    const vendorId = searchParams.get('vendorId');
+
+    const ragService = getSharedRAGService();
+    await ragService.ensureIndexLoaded({ vendorId });
+    const stats = ragService.getStats({ vendorId });
 
     return NextResponse.json({
       success: true,

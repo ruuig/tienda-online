@@ -219,7 +219,7 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
     }
   };
 
-  // Manejar envío de mensaje con OpenAI y flujo de compra
+  // Manejar envío de mensaje con streaming
   const handleSendMessage = async (customMessage = null) => {
     const messageToSend = customMessage || inputValue.trim();
 
@@ -256,58 +256,79 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
     }
 
     try {
-      // Si el usuario está autenticado, intentar usar OpenAI
+      // Si el usuario está autenticado, usar streaming con el nuevo sistema RAG
       if (user) {
-        console.log('Procesando con OpenAI...');
+        console.log('Procesando con sistema RAG streaming...');
 
-        const response = await fetch('/api/chat/process-message', {
+        // Crear mensaje del bot que se irá actualizando
+        const botMessageId = `bot-${Date.now()}`;
+        const botMessage = {
+          _id: botMessageId,
+          conversationId,
+          content: '',
+          sender: 'bot',
+          type: 'text',
+          createdAt: new Date().toISOString(),
+          status: 'streaming'
+        };
+
+        setMessages(prev => [...prev, botMessage]);
+
+        const response = await fetch('/api/chat/stream', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            conversationId,
             message: messageContent,
-            userInfo: {
-              id: user?.id,
-              name: user?.name,
-              email: user?.email
-            },
+            conversationId,
             vendorId
           })
         });
 
-        const data = await response.json();
-        console.log('Respuesta de API:', data);
+        if (response.ok) {
+          const reader = response.body.getReader();
+          let fullContent = '';
 
-        if (response.ok && data.success) {
-          if (data.userMessage) {
-            setMessages(prev => prev.map(msg => (
-              msg._id === tempMessageId ? data.userMessage : msg
-            )));
-          } else {
-            setMessages(prev => prev.map(msg => (
-              msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
-            )));
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = new TextDecoder().decode(value);
+            fullContent += chunk;
+
+            // Actualizar el mensaje del bot en tiempo real
+            setMessages(prev => prev.map(msg =>
+              msg._id === botMessageId
+                ? { ...msg, content: fullContent, status: 'streaming' }
+                : msg
+            ));
           }
 
-          if (data.message && data.message.sender === 'bot') {
-            setMessages(prev => [...prev, data.message]);
+          // Marcar mensaje como completado
+          setMessages(prev => prev.map(msg =>
+            msg._id === botMessageId
+              ? { ...msg, content: fullContent, status: 'completed' }
+              : msg
+          ));
 
-            // Si es un mensaje de flujo de compra, mostrar opciones interactivas
-            if (data.message.type === 'purchase_flow' && data.message.metadata?.nextSteps) {
-              // El mensaje ya incluye las opciones, no necesitamos hacer nada extra
-            }
-          }
-        } else {
-          console.error('Error en API:', data);
-          setMessages(prev => prev.map(msg => (
+          // Actualizar mensaje del usuario como enviado
+          setMessages(prev => prev.map(msg =>
             msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
-          )));
+          ));
+
+        } else {
+          const errorData = await response.json();
+          console.error('Error en API streaming:', errorData);
+
+          setMessages(prev => prev.map(msg =>
+            msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
+          ));
+
           const errorMessage = {
             _id: `error-${Date.now()}`,
             conversationId,
-            content: `Error: ${data.message || 'Problema con IA'}`,
+            content: `Error: ${errorData.message || 'Problema con IA'}`,
             sender: 'bot',
             type: 'text',
             createdAt: new Date().toISOString(),
@@ -333,9 +354,9 @@ const ChatWindow = ({ conversationId, onClose, onMinimize, onRestore }) => {
       }
     } catch (error) {
       console.error('Error enviando mensaje:', error);
-      setMessages(prev => prev.map(msg => (
+      setMessages(prev => prev.map(msg =>
         msg._id === tempMessageId ? { ...msg, status: 'sent' } : msg
-      )));
+      ));
       const errorMessage = {
         _id: `error-${Date.now()}`,
         conversationId,

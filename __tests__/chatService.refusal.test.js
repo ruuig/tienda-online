@@ -2,6 +2,7 @@ import { ChatService } from '@/src/infrastructure/openai/chatService.js';
 
 let classifyIntentMock;
 let generateResponseMock;
+let conversationPersistenceMock;
 
 jest.mock('@/src/infrastructure/openai/openaiClient.js', () => {
   classifyIntentMock = jest.fn();
@@ -17,8 +18,22 @@ jest.mock('@/src/infrastructure/openai/openaiClient.js', () => {
   };
 });
 
+jest.mock('@/src/infrastructure/chat/conversationPersistenceService.js', () => {
+  conversationPersistenceMock = {
+    getRecentMessages: jest.fn().mockResolvedValue([]),
+  };
+
+  return {
+    __esModule: true,
+    ConversationPersistenceService: jest
+      .fn()
+      .mockImplementation(() => conversationPersistenceMock),
+  };
+});
+
 jest.mock('@/src/services/conversationalCartService.js', () => ({
   conversationalCartService: {
+    initialize: jest.fn().mockResolvedValue(),
     searchProducts: jest.fn().mockResolvedValue([]),
     findProductInMessage: jest.fn().mockResolvedValue(null),
     processProductPurchaseIntent: jest.fn(),
@@ -33,6 +48,7 @@ jest.mock('@/src/services/conversationalCartService.js', () => ({
 describe('ChatService off-topic handling', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    conversationPersistenceMock.getRecentMessages.mockResolvedValue([]);
   });
 
   test('returns canned refusal before calling OpenAI for off-topic intent', async () => {

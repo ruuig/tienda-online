@@ -1,25 +1,19 @@
 // API para gestión de documentos RAG
 import connectDB from '@/config/db';
 import { NextResponse } from 'next/server';
-import { DocumentRepositoryImpl } from '@/src/infrastructure/database/repositories';
-import { RAGService } from '@/src/infrastructure/rag/ragService';
-import { getAuthUser } from '@/lib/auth';
+import { getSharedRAGService } from '@/src/infrastructure/rag/ragServiceRegistry.js';
 
 // GET /api/chat/rag/documents - Obtener documentos activos para RAG
 export async function GET(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para ver documentos RAG'
-      }, { status: 403 });
-    }
+    const { searchParams } = new URL(request.url);
+    const vendorId = searchParams.get('vendorId');
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const documents = await documentRepository.findAll({ isActive: true });
+    const ragService = getSharedRAGService();
+    await ragService.ensureIndexLoaded({ vendorId });
+    const documents = ragService.getIndexedDocuments(vendorId);
 
     return NextResponse.json({
       success: true,
@@ -40,21 +34,19 @@ export async function POST(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para reconstruir el índice RAG'
-      }, { status: 403 });
+    const ragService = getSharedRAGService();
+
+    let vendorId = null;
+    try {
+      const body = await request.json();
+      vendorId = body?.vendorId || null;
+    } catch (parseError) {
+      vendorId = null;
     }
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const ragService = new RAGService(documentRepository);
+    await ragService.ensureIndexLoaded({ vendorId, force: true });
 
-    // Reconstruir índice
-    await ragService.rebuildIndex();
-
-    const stats = ragService.getStats();
+    const stats = ragService.getStats({ vendorId });
 
     return NextResponse.json({
       success: true,
@@ -76,18 +68,13 @@ export async function GET_STATS(request) {
   try {
     await connectDB();
 
-    const user = await getAuthUser(request);
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({
-        success: false,
-        message: 'No tienes permisos para ver estadísticas RAG'
-      }, { status: 403 });
-    }
+    const { searchParams } = new URL(request.url);
+    const vendorId = searchParams.get('vendorId');
+    const ragService = getSharedRAGService();
 
-    const documentRepository = new DocumentRepositoryImpl();
-    const ragService = new RAGService(documentRepository);
+    await ragService.ensureIndexLoaded({ vendorId });
 
-    const stats = ragService.getStats();
+    const stats = ragService.getStats({ vendorId });
 
     return NextResponse.json({
       success: true,

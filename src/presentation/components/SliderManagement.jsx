@@ -15,7 +15,8 @@ const SliderManagement = () => {
     offer: '',
     buttonText1: 'Comprar Ahora',
     buttonText2: 'Ver Más',
-    buttonLink2: '/all-products',
+    buttonLink1: '',
+    buttonLink2: '',
     imgSrc: ''
   })
   const [showImageSelector, setShowImageSelector] = useState(false)
@@ -77,6 +78,7 @@ const SliderManagement = () => {
           offer: slide.offer || '',
           buttonText1: slide.buttonText1 || 'Comprar Ahora',
           buttonText2: slide.buttonText2 || 'Ver Más',
+          buttonLink1: slide.buttonLink1 || '',
           buttonLink2: slide.buttonLink2 || '/all-products',
           imgSrc: slide.imgSrc || 'header_headphone_image'
         }))
@@ -150,6 +152,7 @@ const SliderManagement = () => {
         offer: slide.offer || '',
         buttonText1: slide.buttonText1 || 'Comprar Ahora',
         buttonText2: slide.buttonText2 || 'Ver Más',
+        buttonLink1: slide.buttonLink1 || '',
         buttonLink2: slide.buttonLink2 || '/all-products',
         imgSrc: slide.imgSrc || ''
       }))
@@ -216,6 +219,7 @@ const SliderManagement = () => {
   const startEdit = (slide) => {
     setEditingSlide({
       ...slide,
+      buttonLink1: slide.buttonLink1 || '',
       buttonLink2: slide.buttonLink2 || '/all-products'
     })
   }
@@ -308,6 +312,13 @@ const SliderManagement = () => {
                 />
                 <input
                   type="text"
+                  placeholder="Enlace botón 1 (Comprar Ahora)"
+                  value={newSlide.buttonLink1}
+                  onChange={(e) => setNewSlide({...newSlide, buttonLink1: e.target.value})}
+                  className="p-3 border rounded-lg"
+                />
+                <input
+                  type="text"
                   placeholder="Texto botón 2"
                   value={newSlide.buttonText2}
                   onChange={(e) => setNewSlide({...newSlide, buttonText2: e.target.value})}
@@ -384,14 +395,18 @@ const SliderManagement = () => {
                       />
                       <input
                         type="text"
+                        value={editingSlide.buttonLink1}
+                        onChange={(e) => setEditingSlide({...editingSlide, buttonLink1: e.target.value})}
+                        className="p-3 border rounded-lg"
+                        placeholder="Enlace botón 1 (Comprar Ahora)"
+                      />
+                      <input
+                        type="text"
                         value={editingSlide.buttonText2}
                         onChange={(e) => setEditingSlide({...editingSlide, buttonText2: e.target.value})}
                         className="p-3 border rounded-lg"
                         placeholder="Texto botón 2"
                       />
-                      <div className="flex flex-col gap-2 text-xs text-gray-500">
-                      
-                      </div>
                       <input
                         type="text"
                         value={editingSlide.buttonLink2}
@@ -399,6 +414,9 @@ const SliderManagement = () => {
                         className="p-3 border rounded-lg"
                         placeholder="Enlace botón 2 (Ver Más)"
                       />
+                      <div className="flex flex-col gap-2 text-xs text-gray-500">
+                      
+                      </div>
                       <input
                         type="text"
                         value={editingSlide.imgSrc}

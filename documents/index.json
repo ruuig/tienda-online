@@ -12,7 +12,11 @@
     "isActive": true,
     "createdAt": "2025-10-23T10:03:28.795Z",
     "uploadedBy": "seller@tienda.com",
+<<<<<<< HEAD
     "lastIndexed": "2025-10-23T22:49:37.766Z"
+=======
+    "lastIndexed": "2025-10-24T01:46:56.616Z"
+>>>>>>> 0286fa1 (chat)
   },
   {
     "id": "doc_1761213867924",
@@ -27,6 +31,6 @@
     "isActive": true,
     "createdAt": "2025-10-23T10:04:27.925Z",
     "uploadedBy": "seller@tienda.com",
-    "lastIndexed": "2025-10-23T10:17:02.169Z"
+    "lastIndexed": "2025-10-24T01:47:00.800Z"
   }
 ]

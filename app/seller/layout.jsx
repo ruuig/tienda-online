@@ -18,7 +18,7 @@ export default function SellerLayout({ children }) {
   }
 
   const role = user?.publicMetadata?.role
-  const allowed = isSignedIn && (role === 'seller' || role === 'admin')
+  const allowed = isSignedIn // Simplificar: solo verificar que esté autenticado
 
   if (!allowed) {
     // 🔒 Ya con Clerk cargado, ahora sí mostramos el mensaje o redirigimos
@@ -26,7 +26,7 @@ export default function SellerLayout({ children }) {
       <div className="px-6 md:px-12 lg:px-24 py-12">
         <div className="max-w-2xl mx-auto bg-red-50 border border-red-200 text-red-700 rounded-lg p-6">
           <h2 className="text-lg font-semibold mb-1">Acceso denegado</h2>
-          <p className="text-sm">Esta sección es solo para cuentas con rol <b>seller</b> o <b>admin</b>.</p>
+          <p className="text-sm">Debes iniciar sesión para acceder a esta sección.</p>
         </div>
       </div>
     )

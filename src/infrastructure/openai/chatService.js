@@ -2,6 +2,7 @@
 import { OpenAIClient } from './openaiClient.js';
 import { conversationalCartService } from '@/src/services/conversationalCartService.js';
 import { createPromptConfigService } from '@/src/services/promptConfigService.js';
+import { ConversationPersistenceService } from '@/src/infrastructure/chat/conversationPersistenceService.js';
 
 const promptConfigService = createPromptConfigService();
 const OFF_TOPIC_TEMPLATE =
@@ -11,10 +12,14 @@ const OFF_TOPIC_TEMPLATE =
 
 // --- Memoria corta en proceso (por conversación) ---
 const convoMemory = new Map(); // conversationId -> { lastProducts: [], lastQuery: '', ts: number }
+const DEFAULT_HISTORY_LIMIT = 12;
 
 export class ChatService {
-  constructor(openaiApiKey) {
+  constructor(openaiApiKey, options = {}) {
     this.openaiClient = new OpenAIClient(openaiApiKey);
+    this.persistenceService =
+      options.conversationPersistenceService || new ConversationPersistenceService();
+    this.maxHistoryMessages = options.maxHistoryMessages || DEFAULT_HISTORY_LIMIT;
   }
 
   /**
@@ -30,12 +35,21 @@ export class ChatService {
     try {
       const { ragContext: incomingRagContext, ...baseContext } = context || {};
       const ragData = await this.prepareRagData(userMessage, incomingRagContext);
+      const baseProducts = Array.isArray(baseContext.products)
+        ? this.uniqueById(baseContext.products)
+        : [];
+
       const aiContext = {
         ...baseContext,
+        products: baseProducts,
+        productsSummary:
+          baseContext.productsSummary ||
+          (baseProducts.length ? this.generateProductsSummary(baseProducts) : baseContext.productsSummary),
         ragSnippets: ragData.snippets,
         ragSources: ragData.sources,
       };
 
+<<<<<<< HEAD
       // -------- Enriquecer contexto con coincidencias locales de catálogo --------
       const localMatches = this.findProductsInText(userMessage, aiContext.products || []);
       if (this.isReferential(userMessage) && localMatches.length === 0) {
@@ -45,6 +59,14 @@ export class ChatService {
       if (localMatches.length) {
         aiContext.products = this.uniqueById([...(localMatches || []), ...(aiContext.products || [])]);
         aiContext.productsSummary = this.generateProductsSummary(aiContext.products);
+      }
+
+      if (aiContext.products?.length) {
+        try {
+          await conversationalCartService.initialize(aiContext.products);
+        } catch (initError) {
+          console.warn('ChatService: No se pudo inicializar el servicio de carrito conversacional:', initError?.message);
+        }
       }
 
       console.log('ChatService: Clasificando intención...');
@@ -171,10 +193,15 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
       }
 
       // 4) Generar respuesta normal con OpenAI
-      const messages = [
-        { role: 'system', content: aiSystemMessage },
-        { role: 'user', content: userMessage },
-      ];
+      const recentConversationMessages = await this.getRecentConversationMessages(
+        conversationId
+      );
+      const formattedHistory = this.formatHistoryForOpenAI(recentConversationMessages);
+      const messages = this.buildOpenAiMessageArray(
+        aiSystemMessage,
+        formattedHistory,
+        userMessage
+      );
 
       console.log('ChatService: Generando respuesta con OpenAI...');
       const response = await this.openaiClient.generateResponse(messages, {
@@ -184,24 +211,6 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
       });
 
       console.log('ChatService: Respuesta generada:', response?.substring?.(0, 100));
-
-      // 5) Productos relacionados (texto + servicio) y memorizar
-      let relevantProducts = [];
-      try {
-        const textMatches = this.findProductsInText(userMessage, aiContext.products || []);
-        relevantProducts = this.uniqueById([...(textMatches || [])]);
-
-        if (
-          relevantProducts.length === 0 &&
-          (intent.intent === 'consulta_producto' ||
-            (userMessage || '').toLowerCase().includes('producto'))
-        ) {
-          const svcMatches = await conversationalCartService.searchProducts(userMessage, 3);
-          relevantProducts = this.uniqueById([...(svcMatches || [])]);
-        }
-      } catch (e) {
-        console.warn('ChatService: Error buscando productos relacionados:', e?.message);
-      }
 
       if (relevantProducts.length) this.rememberProducts(conversationId, relevantProducts, userMessage);
 
@@ -229,10 +238,24 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
         createdAt: new Date(),
       };
 
+=======
+      console.log('ChatService: Preparando respuesta unificada...');
+
+      // NUEVO: Procesar con un solo llamado a OpenAI que clasifica intención Y genera respuesta
+      const result = await this.processWithUnifiedOpenAI(conversationId, userMessage, aiContext);
+
+      if (!result.success) {
+        console.log('ERROR: Procesamiento unificado falló', result.error);
+        return result;
+      }
+
+      console.log('ChatService: Respuesta unificada generada:', result.message?.content?.substring(0, 100));
+
+>>>>>>> 0286fa1 (chat)
       return {
         success: true,
-        message: botMessageData,
-        intent,
+        message: result.message,
+        intent: result.intent,
         sources: ragData.sources,
         processingTime: Date.now() - startTime,
       };
@@ -261,6 +284,79 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
         processingTime: Date.now() - startTime,
       };
     }
+  }
+
+  async getRecentConversationMessages(conversationId) {
+    if (!conversationId || !this.persistenceService?.getRecentMessages) {
+      return [];
+    }
+
+    try {
+      const messages = await this.persistenceService.getRecentMessages(conversationId, {
+        limit: this.maxHistoryMessages,
+      });
+
+      return Array.isArray(messages) ? messages : [];
+    } catch (error) {
+      console.warn('ChatService: Error recuperando historial de conversación:', error?.message);
+      return [];
+    }
+  }
+
+  formatHistoryForOpenAI(messages = []) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return [];
+    }
+
+    return messages
+      .filter((message) =>
+        message && typeof message.content === 'string' && message.content.trim()
+      )
+      .map((message) => {
+        const sender = message.sender || message.role;
+        const content = message.content.trim();
+
+        if (sender === 'user') {
+          return { role: 'user', content };
+        }
+
+        if (sender === 'bot' || sender === 'assistant') {
+          return { role: 'assistant', content };
+        }
+
+        return null;
+      })
+      .filter(Boolean)
+      .slice(-this.maxHistoryMessages);
+  }
+
+  buildOpenAiMessageArray(systemPrompt, historyMessages = [], userMessage) {
+    const messages = [];
+
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+
+    if (Array.isArray(historyMessages) && historyMessages.length > 0) {
+      messages.push(...historyMessages.slice(-this.maxHistoryMessages));
+    }
+
+    const normalizedUserMessage = typeof userMessage === 'string' ? userMessage.trim() : '';
+    if (normalizedUserMessage) {
+      const lastHistoryMessage = Array.isArray(historyMessages) && historyMessages.length
+        ? historyMessages[historyMessages.length - 1]
+        : null;
+
+      if (
+        !lastHistoryMessage ||
+        lastHistoryMessage.role !== 'user' ||
+        lastHistoryMessage.content !== normalizedUserMessage
+      ) {
+        messages.push({ role: 'user', content: normalizedUserMessage });
+      }
+    }
+
+    return messages;
   }
 
   /**
@@ -361,6 +457,7 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
     }
   }
 
+<<<<<<< HEAD
   // ---------------- Helpers de producto / memoria ----------------
 
   isReferential(text = '') {
@@ -421,6 +518,240 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
         seen.add(key);
         out.push(it);
       }
+=======
+  /**
+   * NUEVO: Procesa mensaje con un solo llamado a OpenAI que hace todo (intención + respuesta)
+   * @param {string} conversationId - ID de la conversación
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {Promise<Object>} - Resultado del procesamiento
+   */
+  async processWithUnifiedOpenAI(conversationId, userMessage, context = {}) {
+    const processingStartTime = Date.now();
+
+    try {
+      console.log('ChatService: Procesando con OpenAI unificado...');
+
+      // 1. Verificar si es una intención de compra conversacional primero (más rápida)
+      const purchaseResult = await this.processPurchaseIntentFast(conversationId, userMessage, context);
+
+      if (purchaseResult) {
+        console.log('ChatService: Respuesta de compra rápida generada:', purchaseResult.action);
+        return {
+          success: true,
+          message: {
+            conversationId,
+            content: purchaseResult.message,
+            sender: 'bot',
+            type: 'purchase_flow',
+            metadata: {
+              intent: 'compra_producto',
+              confidence: 0.95,
+              purchaseAction: purchaseResult.action,
+              cartState: purchaseResult.cartSummary,
+              nextSteps: purchaseResult.nextSteps,
+              products: purchaseResult.products || [],
+              processingTime: Date.now() - processingStartTime,
+              model: 'gpt-4-unified',
+              usedProductContext: !!context.products,
+              productsCount: context.products?.length || 0
+            },
+            createdAt: new Date()
+          },
+          intent: { intent: 'compra_producto', confidence: 0.95 },
+          processingTime: Date.now() - processingStartTime
+        };
+      }
+
+      // 2. Si no es compra, usar OpenAI para generar respuesta directa
+      const systemMessage = this.getUnifiedSystemMessage(context);
+      const messages = [
+        { role: 'system', content: systemMessage },
+        { role: 'user', content: userMessage }
+      ];
+
+      console.log('ChatService: Generando respuesta unificada con OpenAI...');
+      const response = await this.openaiClient.generateResponse(messages, context);
+
+      console.log('ChatService: Respuesta unificada generada:', response.substring(0, 100));
+
+      // 3. Crear mensaje de respuesta del bot
+      const botMessageData = {
+        conversationId,
+        content: response,
+        sender: 'bot',
+        type: 'text',
+        metadata: {
+          processingTime: Date.now() - processingStartTime,
+          model: 'gpt-4-unified',
+          usedProductContext: !!context.products,
+          productsCount: context.products?.length || 0,
+          rag: {
+            used: context.ragSnippets?.length > 0,
+            snippets: context.ragSnippets || [],
+            sources: context.ragSources || [],
+            vendorId: context.vendorId || null
+          }
+        },
+        createdAt: new Date()
+      };
+
+      return {
+        success: true,
+        message: botMessageData,
+        intent: { intent: 'consulta_general', confidence: 0.8 }, // Intención por defecto para respuestas generales
+        processingTime: Date.now() - processingStartTime
+      };
+
+    } catch (error) {
+      console.error('ChatService: Error en procesamiento unificado:', error);
+      return {
+        success: false,
+        error: error.message,
+        processingTime: Date.now() - processingStartTime
+      };
+    }
+  }
+
+  /**
+   * Versión simplificada de processPurchaseIntent para detección rápida
+   * @param {string} conversationId - ID de la conversación
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {Promise<Object|null>} - Resultado del flujo de compra o null
+   */
+  async processPurchaseIntentFast(conversationId, userMessage, context) {
+    const userId = context.userInfo?.id || 'demo-user';
+
+    // Solo procesar intenciones de compra si hay productos disponibles
+    if (!context.products || context.products.length === 0) {
+      return null;
+    }
+
+    // Detectar palabras clave de compra rápidamente
+    const lowerMessage = userMessage.toLowerCase();
+    const purchaseKeywords = ['comprar', 'adquirir', 'me interesa', 'agregar al carrito', 'añadir al carrito', 'ver carrito', 'proceder al pago', 'pagar', 'checkout'];
+
+    const isPurchaseIntent = purchaseKeywords.some(keyword => lowerMessage.includes(keyword));
+
+    if (!isPurchaseIntent) {
+      return null;
+    }
+
+    console.log('ChatService: Intención de compra detectada:', userMessage);
+
+    try {
+      // Buscar producto mencionado en el mensaje
+      const product = await conversationalCartService.findProductInMessage(userMessage);
+
+      if (product) {
+        console.log('ChatService: Producto encontrado:', product.name);
+        return await conversationalCartService.processProductPurchaseIntent(
+          conversationId,
+          userId,
+          userMessage,
+          product
+        );
+      }
+
+      // Si no se puede determinar el producto, pedir aclaración
+      return {
+        action: 'ask_which_product',
+        message: '¡Por supuesto! Pero, necesito saber cuál producto te gustaría. ¿Podrías indicarme el nombre del producto por favor? 😊',
+        nextSteps: [
+          'Ver productos disponibles',
+          'Buscar por nombre',
+          'Ver mi carrito actual'
+        ]
+      };
+
+    } catch (error) {
+      console.error('ChatService: Error procesando intención de compra rápida:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Genera el mensaje del sistema simplificado para respuestas unificadas
+   * @param {Object} context - Contexto adicional
+   * @returns {string} - Mensaje del sistema
+   */
+  getUnifiedSystemMessage(context = {}) {
+    let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta tienda de tecnología. 😊
+
+ESTOY AQUÍ PARA AYUDARTE:
+- Te ayudo a encontrar productos perfectos para ti
+- Puedo agregar productos a tu carrito de forma fácil y rápida
+- Te guío paso a paso en tu proceso de compra
+- Respondo todas tus dudas sobre productos y precios
+
+ESTILO DE RESPUESTA:
+- Soy alegre, entusiasta y súper amigable
+- Uso emojis para hacer la conversación más divertida 🎉
+- Mantengo las respuestas cortas y fáciles de entender
+- Siempre ofrezco opciones claras y siguientes pasos
+
+RESTRICCIONES CRÍTICAS:
+- Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
+- Debes responder usando exactamente este mensaje (reemplaza {TOPIC} por el tema mencionado): "${OFF_TOPIC_TEMPLATE}"
+
+INSTRUCCIONES DE COMPRA:
+- Cuando menciones un producto específico, siempre pregunto si quieres agregarlo al carrito
+- Si confirmas, lo agrego inmediatamente y muestro el estado del carrito
+- Siempre ofrezco opciones como "ver carrito", "agregar más" o "proceder al pago"
+
+CONTEXTO DE LA TIENDA:
+- Somos especialistas en tecnología y productos electrónicos
+- Ofrecemos garantía en todos nuestros productos
+- Envío gratuito en compras mayores a Q500
+- Políticas de devolución: 30 días para productos sin usar
+
+¡Estoy emocionado de ayudarte con tus compras! ¿Qué te gustaría encontrar hoy? 🛒✨`;
+
+    // Agregar contexto de productos si está disponible (simplificado)
+    if (context.products && context.products.length > 0) {
+      const summary = context.productsSummary || `Tenemos ${context.products.length} productos disponibles.`;
+
+      systemMessage += `
+
+📦 PRODUCTOS DISPONIBLES:
+${summary.substring(0, 200)}...`;
+
+      if (context.products.length > 0) {
+        systemMessage += `
+
+🎯 Para compras: Menciona productos específicos y pregunta si quieres agregarlo al carrito.`;
+      }
+    }
+
+    if (context.ragSnippets && context.ragSnippets.length > 0) {
+      const formattedSnippets = context.ragSnippets.slice(0, 1).map(snippet => {
+        const sourceLabel = snippet.source ? ` (Fuente: ${snippet.source})` : '';
+        return `[#${snippet.index}] ${snippet.title}${sourceLabel}\n${snippet.excerpt.substring(0, 100)}...`;
+      }).join('\n\n');
+
+      systemMessage += `
+
+📚 INFO RELEVANTE:
+${formattedSnippets}
+
+🔖 Usa esta información solo si es relevante para la pregunta del cliente.`;
+    }
+
+    return systemMessage;
+  }
+
+  /**
+   * Determina si se debe rechazar la consulta por estar fuera del contexto de la tienda
+   * @param {Object} intent - Intención clasificada
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {boolean}
+   */
+  shouldRefuseRequest(intent, userMessage, context) {
+    if (!intent || intent.intent === 'otra') {
+      return true;
+>>>>>>> 0286fa1 (chat)
     }
     return out;
   }
@@ -533,7 +864,7 @@ a menos que el campo stock|inStock|quantity sea 0. Si no hay datos de stock, asu
    */
   getSystemMessage(context = {}) {
     const availabilityRule = context.availabilityRule || '';
-    let systemMessage = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
+    let systemPrompt = `¡Hola! Soy tu asistente de compras virtual para esta increíble tienda de tecnología. 😊
 
 RESTRICCIONES CRÍTICAS:
 - Si la consulta es sobre temas NO relacionados con la tienda o la tecnología, recházala con amabilidad.
@@ -578,10 +909,30 @@ CONTEXTO DE LA TIENDA:
       const summary =
         context.productsSummary || this.generateProductsSummary(context.products);
 
-      systemMessage += `
+      const detailedList = context.products
+        .slice(0, 10)
+        .map((product, index) => {
+          const price = product.offerPrice ?? product.price ?? '—';
+          const availability =
+            product.inStock === false || product.stock === 0 || product.quantity === 0
+              ? 'Agotado'
+              : 'Disponible';
+          return `${index + 1}. ${product.name} — ${product.category} — Q${price} (${availability})`;
+        })
+        .join('\n');
+
+      systemPrompt += `
 
 📦 PRODUCTOS DISPONIBLES:
 ${summary}
+
+🚦 REGLA CRÍTICA DE PRODUCTOS:
+- Solo puedes mencionar los productos listados a continuación.
+- Si el cliente pide alternativas, utiliza únicamente estos productos.
+- Si ningún producto coincide, ofrece buscar con un agente humano.
+
+📋 LISTA DE PRODUCTOS FILTRADOS PARA ESTA CONSULTA:
+${detailedList}
 
 🎯 CUANDO UN CLIENTE PREGUNTA POR PRODUCTOS:
 - Menciona el nombre exacto del producto
@@ -607,7 +958,7 @@ ${summary}
         })
         .join('\n\n');
 
-      systemMessage += `
+      systemPrompt += `
 
 📚 DOCUMENTOS DE REFERENCIA DISPONIBLES:
 ${formattedSnippets}
@@ -618,7 +969,7 @@ ${formattedSnippets}
 - Si la respuesta no está en los documentos, indícalo y ofrece escalar a un agente humano.`;
     }
 
-    return systemMessage;
+    return systemPrompt;
   }
 
   // ---------------- RAG helpers ----------------
@@ -848,9 +1199,257 @@ ${formattedSnippets}
       averageMessagesPerConversation: 0,
     };
   }
+
+  /**
+   * Procesa mensaje de forma ultra-rápida sin contexto complejo
+   * @param {string} conversationId - ID de la conversación
+   * @param {string} userMessage - Mensaje del usuario
+   * @returns {Promise<Object>} - Respuesta procesada rápidamente
+   */
+  async processFastMessage(conversationId, userMessage) {
+    const startTime = Date.now();
+
+    try {
+      console.log('ChatService: Procesando mensaje ultra-rápido...');
+
+      // Respuesta directa sin contexto complejo
+      const systemMessage = `Eres un asistente de atención al cliente para una tienda online de tecnología.
+
+INSTRUCCIONES:
+- Responde en español de manera clara y concisa
+- Sé amable y profesional
+- Respuestas cortas (máximo 50 palabras)
+- Si no estás seguro, di que consultarás con un agente
+- No menciones productos específicos a menos que se pregunte directamente
+
+CONTEXTO DE LA TIENDA:
+- Somos especialistas en tecnología y productos electrónicos
+- Envío gratuito en compras mayores a Q500
+
+Responde de manera útil y rápida.`;
+
+      const messages = [
+        { role: 'system', content: systemMessage },
+        { role: 'user', content: userMessage }
+      ];
+
+      const response = await this.openaiClient.generateResponse(messages);
+
+      const botMessageData = {
+        conversationId,
+        content: response,
+        sender: 'bot',
+        type: 'text',
+        metadata: {
+          processingTime: Date.now() - startTime,
+          model: 'gpt-3.5-turbo-fast',
+          mode: 'ultra_fast'
+        },
+        createdAt: new Date()
+      };
+
+      return {
+        success: true,
+        message: botMessageData,
+        intent: { intent: 'consulta_general', confidence: 0.8 },
+        processingTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      console.error('ChatService: Error en procesamiento rápido:', error);
+      return {
+        success: false,
+        message: {
+          conversationId,
+          content: 'Lo siento, estoy teniendo problemas. Un agente te ayudará pronto.',
+          sender: 'bot',
+          type: 'text',
+          metadata: { error: true },
+          createdAt: new Date()
+        },
+        error: error.message,
+        processingTime: Date.now() - startTime
+      };
+    }
+  }
+  /////////////////////////////////
+
+  /**
+   * Procesa mensaje con el nuevo sistema RAG integrado
+   * @param {string} conversationId - ID de la conversación
+   * @param {string} userMessage - Mensaje del usuario
+   * @param {Object} context - Contexto adicional
+   * @returns {Promise<Object>} - Resultado del procesamiento
+   */
+  async processWithRAGIntegration(conversationId, userMessage, context = {}) {
+    const startTime = Date.now();
+
+    try {
+      console.log('ChatService: Procesando con sistema RAG integrado...');
+
+      // 1. Buscar productos primero (más rápido)
+      const products = await this.productContextService.searchProducts(userMessage, 3);
+
+      if (products && products.length > 0) {
+        console.log('ChatService: Productos encontrados, usando respuesta de productos');
+        return this.generateProductResponse(conversationId, userMessage, products, startTime);
+      }
+
+      // 2. Si no hay productos, intentar buscar en documentos RAG
+      const documents = await this.productContextService.getDocumentsForVendor(context.vendorId || 'default_vendor');
+
+      if (documents && documents.length > 0) {
+        console.log('ChatService: Documentos RAG encontrados, usando RAG');
+        return this.generateRAGResponse(conversationId, userMessage, documents[0]._id, startTime);
+      }
+
+      // 3. Si no hay documentos ni productos, respuesta general
+      console.log('ChatService: No hay contexto disponible, respuesta general');
+      return this.generateGeneralResponse(conversationId, userMessage, startTime);
+
+    } catch (error) {
+      console.error('ChatService: Error en integración RAG:', error);
+      return this.generateGeneralResponse(conversationId, userMessage, startTime);
+    }
+  }
+
+  /**
+   * Genera respuesta basada en productos encontrados
+   */
+  async generateProductResponse(conversationId, userMessage, products, startTime) {
+    const summary = this.generateProductsSummary(products);
+
+    const systemMessage = `Eres un asistente de ventas que ayuda a los clientes con información sobre productos.
+
+PRODUCTOS ENCONTRADOS:
+${summary}
+
+INSTRUCCIONES:
+- Sé entusiasta y útil
+- Menciona productos específicos con precios
+- Pregunta si quiere agregarlo al carrito
+- Ofrece opciones como "ver más detalles" o "buscar alternativas"
+
+Responde en español de manera natural.`;
+
+    const messages = [
+      { role: 'system', content: systemMessage },
+      { role: 'user', content: userMessage }
+    ];
+
+    const response = await this.openaiClient.generateResponse(messages);
+
+    const botMessageData = {
+      conversationId,
+      content: response,
+      sender: 'bot',
+      type: 'product_info',
+      metadata: {
+        productsFound: products.length,
+        processingTime: Date.now() - startTime,
+        model: 'gpt-3.5-turbo-product',
+        usedProductContext: true
+      },
+      createdAt: new Date()
+    };
+
+    return {
+      success: true,
+      message: botMessageData,
+      intent: { intent: 'consulta_producto', confidence: 0.9 },
+      sources: products.map(p => ({ type: 'product', id: p._id, name: p.name })),
+      processingTime: Date.now() - startTime
+    };
+  }
+
+  /**
+   * Genera respuesta usando RAG con documentos reales
+   */
+  async generateRAGResponse(conversationId, userMessage, documentId, startTime) {
+    try {
+      // Importar servicios RAG dinámicamente
+      const { AskQuestionUseCase } = await import('../../application/useCases/AskQuestionUseCase.js');
+      const { MongoVectorRepository } = await import('../../infrastructure/database/MongoVectorRepository.js');
+      const { OpenAIEmbeddingsService } = await import('../../infrastructure/embeddings/OpenAIEmbeddingsService.js');
+      const { OpenAILLMService } = await import('../../infrastructure/llm/OpenAILLMService.js');
+
+      const vectorRepository = new MongoVectorRepository();
+      const embeddingsService = new OpenAIEmbeddingsService();
+      const llmService = new OpenAILLMService();
+      const askQuestionUseCase = new AskQuestionUseCase(
+        vectorRepository,
+        embeddingsService,
+        llmService,
+        this.productContextService
+      );
+
+      let fullResponse = '';
+      for await (const token of askQuestionUseCase.stream({
+        question: userMessage,
+        documentId,
+        vendorId: 'default_vendor'
+      })) {
+        fullResponse += token;
+      }
+
+      const botMessageData = {
+        conversationId,
+        content: fullResponse,
+        sender: 'bot',
+        type: 'rag_info',
+        metadata: {
+          documentId,
+          processingTime: Date.now() - startTime,
+          model: 'gpt-4o-mini-rag',
+          usedRAG: true
+        },
+        createdAt: new Date()
+      };
+
+      return {
+        success: true,
+        message: botMessageData,
+        intent: { intent: 'consulta_general', confidence: 0.8 },
+        processingTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      console.error('Error in RAG response:', error);
+      return this.generateGeneralResponse(conversationId, userMessage, startTime);
+    }
+  }
+
+  /**
+   * Genera respuesta general sin contexto específico
+   */
+  async generateGeneralResponse(conversationId, userMessage, startTime) {
+    const response = await this.openaiClient.generateResponse([
+      { role: 'system', content: 'Eres un asistente de tienda online. Sé amable y ofrece ayudar con productos tecnológicos.' },
+      { role: 'user', content: userMessage }
+    ]);
+
+    const botMessageData = {
+      conversationId,
+      content: response,
+      sender: 'bot',
+      type: 'general',
+      metadata: {
+        processingTime: Date.now() - startTime,
+        model: 'gpt-3.5-turbo-general'
+      },
+      createdAt: new Date()
+    };
+
+    return {
+      success: true,
+      message: botMessageData,
+      intent: { intent: 'consulta_general', confidence: 0.7 },
+      processingTime: Date.now() - startTime
+    };
+  }
 }
 
 // Factory function para crear servicio de chat
-export const createChatService = (openaiApiKey) => {
-  return new ChatService(openaiApiKey);
+export const createChatService = (openaiApiKey, options = {}) => {
+  return new ChatService(openaiApiKey, options);
 };

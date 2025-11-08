@@ -129,16 +129,53 @@ const Message = ({ message, isOwn, onMarkAsRead, onPurchaseOption, onAddToCart }
             </div>
           </div>
 
-          {/* Fuentes para respuestas RAG */}
-          {message.metadata?.sources && message.metadata.sources.length > 0 && (
-            <div className={`mt-2 text-xs ${isOwn ? 'text-blue-200' : 'text-gray-600'}`}>
-              <span className="font-medium">Fuentes: </span>
-              {message.metadata.sources.slice(0, 2).map((source, index) => (
-                <span key={`source-${index}-${source.substring(0, 10)}`} className="mr-1">
-                  {source}
-                  {index < message.metadata.sources.length - 1 ? ', ' : ''}
+          {/* Indicador de streaming para mensajes del bot */}
+          {message.sender === 'bot' && message.status === 'streaming' && (
+            <div className="mt-2 flex items-center space-x-2 text-xs text-gray-400">
+              <div className="flex space-x-1">
+                <div className="w-1 h-1 bg-current rounded-full animate-bounce"></div>
+                <div className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              </div>
+              <span>Generando respuesta...</span>
+            </div>
+          )}
+
+          {/* Indicadores de contexto usado */}
+          {message.sender === 'bot' && message.metadata && !isOwn && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {message.metadata.usedProductContext && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                  📦 Productos
                 </span>
-              ))}
+              )}
+              {message.metadata.usedRAG && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                  📚 Documentos
+                </span>
+              )}
+              {message.metadata.documentId && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded-full">
+                  📄 RAG
+                </span>
+              )}
+              {message.type === 'product_info' && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-yellow-100 text-yellow-800 rounded-full">
+                  🛒 Ventas
+                </span>
+              )}
+              {message.type === 'rag_info' && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-indigo-100 text-indigo-800 rounded-full">
+                  🤖 IA
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Performance metrics */}
+          {message.metadata?.processingTime && !isOwn && (
+            <div className={`mt-1 text-xs ${isOwn ? 'text-blue-200' : 'text-gray-500'}`}>
+              ⚡ {message.metadata.processingTime}ms
             </div>
           )}
 
